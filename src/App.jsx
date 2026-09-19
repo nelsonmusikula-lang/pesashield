@@ -42,6 +42,9 @@ export default function App() {
   const [editingDebtId, setEditingDebtId] = useState(null);
   const [editDebtForm, setEditDebtForm] = useState({});
 
+  // Restructuring Engine State
+  const [restructurePlans, setRestructurePlans] = useState({});
+
   // Payment Logging Input State
   const [paymentInput, setPaymentInput] = useState({});
   const [selectedMonth, setSelectedMonth] = useState(new Date().toLocaleString('default', { month: 'short', year: 'numeric' }));
@@ -159,6 +162,20 @@ export default function App() {
     }
   };
 
+  const generateRestructurePlan = (debt) => {
+    const suggestedPay = Math.max(10000, Math.round(debt.min_payment * 0.6));
+    const estimatedMonths = Math.ceil(debt.balance / suggestedPay);
+    
+    setRestructurePlans({
+      ...restructurePlans,
+      [debt.id]: {
+        suggestedPay,
+        estimatedMonths,
+        pitchText: `Hello ${debt.name}, due to temporary cash flow adjustments, I would like to propose a restructured payment plan of TSH ${suggestedPay.toLocaleString()} monthly over ${estimatedMonths} months to ensure consistent full settlement.`
+      }
+    });
+  };
+
   const handleAddIncomeSource = async (e) => {
     e.preventDefault();
     if (!newIncomeName || !newIncomeAmount) return;
@@ -169,8 +186,6 @@ export default function App() {
       setIncomeSources([...incomeSources, data]);
       setNewIncomeName('');
       setNewIncomeAmount('');
-    } else {
-      console.error('Error adding income source:', error);
     }
   };
 
@@ -191,6 +206,7 @@ export default function App() {
       apr: Number(newDebtApr || 0),
       duration_months: Number(newDebtDuration || 12),
       due_day: Number(newDebtDueDay || 28),
+      is_restructurable: true,
       payments: [],
       user_id: session.user.id
     };
@@ -214,7 +230,8 @@ export default function App() {
       min_payment: Number(editDebtForm.min_payment),
       apr: Number(editDebtForm.apr),
       duration_months: Number(editDebtForm.duration_months),
-      due_day: Number(editDebtForm.due_day)
+      due_day: Number(editDebtForm.due_day),
+      is_restructurable: editDebtForm.is_restructurable
     };
 
     const { error } = await supabase
@@ -225,8 +242,6 @@ export default function App() {
     if (!error) {
       setDebts(debts.map(d => d.id === debtId ? { ...d, ...updates } : d));
       setEditingDebtId(null);
-    } else {
-      console.error('Error updating debt:', error);
     }
   };
 
@@ -303,8 +318,6 @@ export default function App() {
       
     if (!error && data) {
       setProfileId(data.id);
-    } else {
-      console.error('Error updating profile field:', error);
     }
   };
 
@@ -400,8 +413,8 @@ export default function App() {
           {activeTab === 'debts' && (
             <div className="space-y-4">
               <div>
-                <h3 className="text-xs font-bold text-slate-900 uppercase">Debts & Payment Reminders</h3>
-                <p className="text-[10px] text-gray-400">Track due dates, log monthly payments, and trigger notifications</p>
+                <h3 className="text-xs font-bold text-slate-900 uppercase">Debts & Restructuring Engine</h3>
+                <p className="text-[10px] text-gray-400">Manage terms, review restructurability, and log payments</p>
               </div>
 
               <div className="grid grid-cols-2 gap-2">
@@ -434,18 +447,6 @@ export default function App() {
                   <option value="Oct 2026">Oct 2026</option>
                   <option value="Nov 2026">Nov 2026</option>
                   <option value="Dec 2026">Dec 2026</option>
-                  <option value="Jan 2027">Jan 2027</option>
-                  <option value="Feb 2027">Feb 2027</option>
-                  <option value="Mar 2027">Mar 2027</option>
-                  <option value="Apr 2027">Apr 2027</option>
-                  <option value="May 2027">May 2027</option>
-                  <option value="Jun 2027">Jun 2027</option>
-                  <option value="Jul 2027">Jul 2027</option>
-                  <option value="Aug 2027">Aug 2027</option>
-                  <option value="Sep 2027">Sep 2027</option>
-                  <option value="Oct 2027">Oct 2027</option>
-                  <option value="Nov 2027">Nov 2027</option>
-                  <option value="Dec 2027">Dec 2027</option>
                 </select>
               </div>
 
@@ -466,18 +467,20 @@ export default function App() {
 
               <div className="space-y-3">
                 {debts.map(debt => {
-                  const duration = debt.duration_months || debt.durationMonths || 12;
-                  const dueDay = debt.due_day || debt.dueDay || 28;
-                  const minPaymentVal = debt.min_payment || debt.minPayment || 0;
+                  const duration = debt.duration_months || 12;
+                  const dueDay = debt.due_day || 28;
+                  const minPaymentVal = debt.min_payment || 0;
                   const isPaidThisMonth = debt.payments?.some(p => p.month === selectedMonth);
                   const isEditing = editingDebtId === debt.id;
+                  const isRestructurable = debt.is_restructurable ?? true;
+                  const plan = restructurePlans[debt.id];
 
                   return (
                     <div key={debt.id} className="bg-white border border-gray-100 shadow-sm rounded-2xl p-3 space-y-3">
                       {isEditing ? (
                         <div className="space-y-2">
                           <div className="flex justify-between items-center">
-                            <span className="text-[10px] font-bold text-slate-700 uppercase">Editing Debt</span>
+                            <span className="text-[10px] font-bold text-slate-700 uppercase">Editing Debt Terms</span>
                             <button onClick={() => setEditingDebtId(null)} className="text-gray-400 hover:text-slate-600 text-xs">✕ Cancel</button>
                           </div>
                           <input 
@@ -525,6 +528,15 @@ export default function App() {
                               placeholder="Due Day"
                             />
                           </div>
+                          <div className="flex items-center space-x-2 pt-1">
+                            <input 
+                              type="checkbox" 
+                              id={`restructurable-${debt.id}`}
+                              checked={editDebtForm.is_restructurable ?? true}
+                              onChange={(e) => setEditDebtForm({ ...editDebtForm, is_restructurable: e.target.checked })}
+                            />
+                            <label htmlFor={`restructurable-${debt.id}`} className="text-[10px] text-slate-700 font-medium">Open to restructuring / negotiation</label>
+                          </div>
                           <button 
                             onClick={() => handleUpdateDebt(debt.id)} 
                             className="w-full py-2 bg-emerald-600 text-white rounded-lg text-xs font-bold shadow-sm"
@@ -545,8 +557,9 @@ export default function App() {
                               <div className="grid grid-cols-2 gap-x-4 mt-1 text-[10px] text-gray-500">
                                 <span>Balance: <b className="text-slate-900">TSH {debt.balance.toLocaleString()}</b></span>
                                 <span>Min Pay: <b>TSH {minPaymentVal.toLocaleString()}</b></span>
-                                <span className="text-emerald-700">Duration: <b>{duration} mos</b></span>
-                                <span className="text-indigo-600">Reminder: <b>Monthly on {dueDay}th</b></span>
+                                <span className={isRestructurable ? 'text-emerald-600 font-bold' : 'text-rose-600 font-bold'}>
+                                  {isRestructurable ? '🤝 Restructurable' : '🔒 Fixed / Non-Negotiable'}
+                                </span>
                               </div>
                             </div>
                             <div className="flex items-center space-x-2">
@@ -559,7 +572,8 @@ export default function App() {
                                     min_payment: minPaymentVal,
                                     apr: debt.apr || 0,
                                     duration_months: duration,
-                                    due_day: dueDay
+                                    due_day: dueDay,
+                                    is_restructurable: isRestructurable
                                   });
                                 }} 
                                 className="text-gray-400 hover:text-emerald-600 text-xs"
@@ -570,6 +584,40 @@ export default function App() {
                               <button onClick={() => handleDeleteDebt(debt.id)} className="text-gray-400 hover:text-red-500 text-xs" title="Delete Debt">🗑️</button>
                             </div>
                           </div>
+
+                          {/* Restructuring proposal generator widget */}
+                          {isRestructurable ? (
+                            <div className="bg-indigo-50/60 border border-indigo-100 p-2.5 rounded-xl space-y-2">
+                              <div className="flex justify-between items-center">
+                                <span className="text-[10px] font-bold text-indigo-900">💡 Restructuring Proposal Engine</span>
+                                <button 
+                                  onClick={() => generateRestructurePlan(debt)}
+                                  className="px-2 py-1 bg-indigo-600 text-white rounded-md text-[10px] font-bold hover:bg-indigo-700"
+                                >
+                                  {plan ? 'Regenerate Plan' : 'Generate Plan'}
+                                </button>
+                              </div>
+                              {plan && (
+                                <div className="bg-white p-2 rounded-lg border border-indigo-100 text-[10px] space-y-1">
+                                  <div className="flex justify-between text-indigo-950 font-semibold">
+                                    <span>Recommended Monthly:</span>
+                                    <span>TSH {plan.suggestedPay.toLocaleString()} ({plan.estimatedMonths} mos)</span>
+                                  </div>
+                                  <p className="text-gray-600 italic">"{plan.pitchText}"</p>
+                                  <button 
+                                    onClick={() => navigator.clipboard.writeText(plan.pitchText)}
+                                    className="text-[9px] text-indigo-600 font-bold hover:underline block pt-1"
+                                  >
+                                    📋 Copy Proposal Pitch to Clipboard
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="text-[10px] text-gray-400 italic bg-slate-50 p-2 rounded-lg">
+                              Marked as fixed payment. Restructuring analysis is disabled for this entry.
+                            </div>
+                          )}
 
                           <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 flex items-center space-x-2">
                             <input 
@@ -586,20 +634,6 @@ export default function App() {
                               Log
                             </button>
                           </div>
-
-                          {debt.payments && debt.payments.length > 0 && (
-                            <div className="border-t border-gray-100 pt-2 space-y-1">
-                              <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 block">Payment Records</span>
-                              <div className="max-h-24 overflow-y-auto space-y-1">
-                                {debt.payments.map(p => (
-                                  <div key={p.id} className="flex justify-between items-center text-[10px] bg-emerald-50/50 px-2.5 py-1 rounded-lg text-slate-700">
-                                    <span className="font-semibold text-emerald-900">📅 {p.month}</span>
-                                    <span className="font-bold text-emerald-800">- TSH {p.amount.toLocaleString()}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
                         </>
                       )}
                     </div>
@@ -649,7 +683,7 @@ export default function App() {
                 
                 <div className="space-y-2">
                   {sortedDebts.map((debt, index) => {
-                    const minPay = debt.min_payment || debt.minPayment || 0;
+                    const minPay = debt.min_payment || 0;
                     return (
                       <div key={debt.id} className="bg-white border border-gray-100 p-3 rounded-xl flex justify-between items-center text-xs">
                         <div>
@@ -720,7 +754,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Dynamic Custom Essentials */}
               <div className="bg-white border border-gray-100 rounded-2xl p-4 space-y-3">
                 <h4 className="text-xs font-bold text-slate-800">Additional Custom Essentials</h4>
                 <form onSubmit={handleAddEssential} className="space-y-2">
