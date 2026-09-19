@@ -12,8 +12,15 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('shield');
 
+  // Income Sources State
+  const [incomeSources, setIncomeSources] = useState([
+    { id: 1, name: 'Primary Salary', amount: 10000000 },
+    { id: 2, name: 'Side Business', amount: 2000000 }
+  ]);
+  const [newIncomeName, setNewIncomeName] = useState('');
+  const [newIncomeAmount, setNewIncomeAmount] = useState('');
+
   // Budget & Profile State
-  const [netIncome, setNetIncome] = useState(12000000);
   const [housing, setHousing] = useState(1000000);
   const [food, setFood] = useState(250000);
   const [utilities, setUtilities] = useState(200000);
@@ -55,6 +62,7 @@ export default function App() {
 
   // Payment Logging Input State
   const [paymentInput, setPaymentInput] = useState({});
+  const [selectedMonth, setSelectedMonth] = useState(new Date().toLocaleString('default', { month: 'short', year: 'numeric' }));
 
   // Payoff Strategy State
   const [selectedStrategy, setSelectedStrategy] = useState('avalanche');
@@ -86,13 +94,28 @@ export default function App() {
   }
 
   // Calculations
+  const totalNetIncome = incomeSources.reduce((sum, item) => sum + Number(item.amount), 0);
   const baseLivingCosts = housing + food + utilities + transport;
   const customEssentialsTotal = customEssentials.reduce((sum, item) => sum + Number(item.amount), 0);
   const totalLivingCosts = baseLivingCosts + customEssentialsTotal;
   
   const totalMinDebt = debts.reduce((sum, d) => sum + Number(d.minPayment), 0);
   const totalOutstanding = debts.reduce((sum, d) => sum + Number(d.balance), 0);
-  const extraSurplus = netIncome - (totalLivingCosts + totalMinDebt + emergencyBuffer);
+  
+  // Reduced Disposable Income after deductions, essentials, and debt obligations
+  const disposableIncome = totalNetIncome - (totalLivingCosts + totalMinDebt + emergencyBuffer);
+
+  const handleAddIncomeSource = (e) => {
+    e.preventDefault();
+    if (!newIncomeName || !newIncomeAmount) return;
+    setIncomeSources([...incomeSources, { id: Date.now(), name: newIncomeName, amount: Number(newIncomeAmount) }]);
+    setNewIncomeName('');
+    setNewIncomeAmount('');
+  };
+
+  const handleDeleteIncomeSource = (id) => {
+    setIncomeSources(incomeSources.filter(item => item.id !== id));
+  };
 
   const handleAddDebt = (e) => {
     e.preventDefault();
@@ -123,14 +146,12 @@ export default function App() {
     const amountPaid = Number(paymentInput[debtId]);
     if (!amountPaid || amountPaid <= 0) return;
 
-    const currentMonth = new Date().toLocaleString('default', { month: 'short', year: 'numeric' });
-
     setDebts(debts.map(debt => {
       if (debt.id === debtId) {
         const newBalance = Math.max(0, debt.balance - amountPaid);
         const newPaymentRecord = {
           id: Date.now(),
-          month: currentMonth,
+          month: selectedMonth,
           amount: amountPaid
         };
         return {
@@ -142,7 +163,6 @@ export default function App() {
       return debt;
     }));
 
-    // Clear input for this specific debt
     setPaymentInput({ ...paymentInput, [debtId]: '' });
   };
 
@@ -158,7 +178,6 @@ export default function App() {
     setCustomEssentials(customEssentials.filter(item => item.id !== id));
   };
 
-  // Strategy sorting
   const sortedDebts = [...debts].sort((a, b) => {
     if (selectedStrategy === 'avalanche') {
       return b.apr - a.apr;
@@ -196,44 +215,51 @@ export default function App() {
             <div className="space-y-4">
               <div className="bg-amber-50 border border-amber-200/60 rounded-2xl p-4">
                 <h3 className="text-xs font-bold text-amber-900 flex items-center space-x-1 mb-1">
-                  <span>⚠️</span> <span>Moderate Debt Burden</span>
+                  <span>⚠️</span> <span>Cashflow & Debt Burden Analysis</span>
                 </h3>
                 <p className="text-[11px] text-amber-800/80 leading-relaxed">
-                  Debt is consuming a significant portion of income. Limit discretionary spend and follow your chosen payoff roadmap.
+                  Your income is dynamically reduced by essentials, safety buffers, and minimum loan commitments to show your true disposable funds.
                 </p>
+              </div>
+
+              {/* Reduced Income Dashboard Card */}
+              <div className="bg-slate-900 text-white rounded-2xl p-4 space-y-3 shadow-md">
+                <div className="flex justify-between items-center">
+                  <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Gross Income</span>
+                  <span className="text-xs font-bold text-emerald-400">TSH {totalNetIncome.toLocaleString()}</span>
+                </div>
+                <div className="border-t border-slate-800 pt-2 space-y-1 text-[11px] text-slate-300">
+                  <div className="flex justify-between"><span>Less Living Essentials:</span> <span className="text-rose-400">- TSH {totalLivingCosts.toLocaleString()}</span></div>
+                  <div className="flex justify-between"><span>Less Debt Minimums:</span> <span className="text-rose-400">- TSH {totalMinDebt.toLocaleString()}</span></div>
+                  <div className="flex justify-between"><span>Less Emergency Buffer:</span> <span className="text-amber-400">- TSH {emergencyBuffer.toLocaleString()}</span></div>
+                </div>
+                <div className="border-t border-slate-800 pt-2 flex justify-between items-center">
+                  <span className="text-[11px] font-extrabold text-white uppercase tracking-wider">Net Disposable Income</span>
+                  <span className="text-sm font-black text-emerald-400">TSH {disposableIncome.toLocaleString()}</span>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-slate-50 border border-slate-100 p-3.5 rounded-2xl">
                   <span className="text-[10px] font-bold text-purple-600 uppercase tracking-wider block mb-1">Acceleration Surplus</span>
-                  <span className="text-sm font-extrabold text-slate-900">TSH {extraSurplus.toLocaleString()}</span>
-                  <span className="text-[9px] text-gray-400 block mt-0.5">Monthly debt payload</span>
+                  <span className="text-sm font-extrabold text-slate-900">TSH {disposableIncome.toLocaleString()}</span>
+                  <span className="text-[9px] text-gray-400 block mt-0.5">Available for debt payload</span>
                 </div>
                 <div className="bg-slate-50 border border-slate-100 p-3.5 rounded-2xl">
                   <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider block mb-1">Safe Daily Spend</span>
-                  <span className="text-sm font-extrabold text-slate-900">TSH 3,500</span>
-                  <span className="text-[9px] text-gray-400 block mt-0.5">Discretionary safe cap</span>
-                </div>
-              </div>
-
-              <div className="bg-white border border-gray-100 shadow-sm rounded-2xl p-4">
-                <h4 className="text-xs font-bold text-slate-800 mb-3">Income & Allocation Overview</h4>
-                <div className="flex flex-col items-center justify-center py-2 relative">
-                  <div className="w-32 h-32 rounded-full border-8 border-slate-100 flex flex-col items-center justify-center text-center">
-                    <span className="text-[8px] font-bold text-gray-400 uppercase tracking-wider">NET INCOME</span>
-                    <span className="text-xs font-black text-slate-900">TSH {netIncome.toLocaleString()}</span>
-                  </div>
+                  <span className="text-sm font-extrabold text-slate-900">TSH {Math.max(0, Math.round(disposableIncome / 30)).toLocaleString()}</span>
+                  <span className="text-[9px] text-gray-400 block mt-0.5">Daily discretionary limit</span>
                 </div>
               </div>
             </div>
           )}
 
-          {/* DEBTS & PAYMENT LOG TAB */}
+          {/* DEBTS & MONTHLY LOG TAB */}
           {activeTab === 'debts' && (
             <div className="space-y-4">
               <div>
-                <h3 className="text-xs font-bold text-slate-900 uppercase">Debts & Monthly Payment Log</h3>
-                <p className="text-[10px] text-gray-400">Log payments to automatically deduct remaining balances</p>
+                <h3 className="text-xs font-bold text-slate-900 uppercase">Debts & Monthly Payment Records</h3>
+                <p className="text-[10px] text-gray-400">Select month and log payments to automatically deduct balances</p>
               </div>
 
               <div className="grid grid-cols-2 gap-2">
@@ -245,6 +271,41 @@ export default function App() {
                   <span className="text-[9px] text-gray-400 uppercase font-bold block">Min Monthly Obligations</span>
                   <span className="text-xs font-extrabold text-slate-900">TSH {totalMinDebt.toLocaleString()}</span>
                 </div>
+              </div>
+
+              {/* Month Selector for Logging */}
+              <div className="bg-indigo-50 border border-indigo-100 p-3 rounded-2xl flex items-center justify-between">
+                <span className="text-[10px] font-bold text-indigo-900 uppercase">Target Payment Month:</span>
+                <select 
+                  value={selectedMonth} 
+                  onChange={(e) => setSelectedMonth(e.target.value)}
+                  className="bg-white border border-indigo-200 px-3 py-1 rounded-lg text-xs font-bold text-indigo-900 focus:outline-none"
+                >
+                  <option value="Jan 2026">Jan 2026</option>
+                  <option value="Feb 2026">Feb 2026</option>
+                  <option value="Mar 2026">Mar 2026</option>
+                  <option value="Apr 2026">Apr 2026</option>
+                  <option value="May 2026">May 2026</option>
+                  <option value="Jun 2026">Jun 2026</option>
+                  <option value="Jul 2026">Jul 2026</option>
+                  <option value="Aug 2026">Aug 2026</option>
+                  <option value="Sep 2026">Sep 2026</option>
+                  <option value="Oct 2026">Oct 2026</option>
+                  <option value="Nov 2026">Nov 2026</option>
+                  <option value="Dec 2026">Dec 2026</option>
+                  <option value="Jan 2027">Jan 2027</option>
+                  <option value="Feb 2027">Feb 2027</option>
+                  <option value="Mar 2027">Mar 2027</option>
+                  <option value="Apr 2027">Apr 2027</option>
+                  <option value="May 2027">May 2027</option>
+                  <option value="Jun 2027">Jun 2027</option>
+                  <option value="Jul 2027">Jul 2027</option>
+                  <option value="Aug 2027">Aug 2027</option>
+                  <option value="Sep 2027">Sep 2027</option>
+                  <option value="Oct 2027">Oct 2027</option>
+                  <option value="Nov 2027">Nov 2027</option>
+                  <option value="Dec 2027">Dec 2027</option>
+                </select>
               </div>
 
               {/* Add Debt Form */}
@@ -262,7 +323,7 @@ export default function App() {
                 <button type="submit" className="w-full py-2 bg-slate-900 text-white rounded-lg text-xs font-bold">Add Debt</button>
               </form>
 
-              {/* Debts List with Payment Logs */}
+              {/* Debts List with Separate Monthly Records */}
               <div className="space-y-3">
                 {debts.map(debt => {
                   const duration = debt.durationMonths || 12;
@@ -285,11 +346,11 @@ export default function App() {
                         <button onClick={() => handleDeleteDebt(debt.id)} className="text-gray-400 hover:text-red-500 text-xs">🗑️</button>
                       </div>
 
-                      {/* Log Payment Input Box */}
+                      {/* Log Payment for Selected Month */}
                       <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 flex items-center space-x-2">
                         <input 
                           type="number" 
-                          placeholder="Amount paid this month" 
+                          placeholder={`Pay amount for ${selectedMonth}`} 
                           value={paymentInput[debt.id] || ''} 
                           onChange={(e) => setPaymentInput({ ...paymentInput, [debt.id]: e.target.value })} 
                           className="flex-1 px-2.5 py-1.5 bg-white border rounded-lg text-xs"
@@ -298,18 +359,18 @@ export default function App() {
                           onClick={() => handleLogPayment(debt.id)} 
                           className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-sm"
                         >
-                          Log Payment
+                          Log
                         </button>
                       </div>
 
-                      {/* Payment History Log Display */}
+                      {/* Payment History Records By Month */}
                       {debt.payments && debt.payments.length > 0 && (
                         <div className="border-t border-gray-100 pt-2 space-y-1">
-                          <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 block">Payment History</span>
-                          <div className="max-h-24 overflow-y-auto space-y-1">
+                          <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 block">Monthly Payment History Records</span>
+                          <div className="max-h-28 overflow-y-auto space-y-1">
                             {debt.payments.map(p => (
-                              <div key={p.id} className="flex justify-between items-center text-[10px] bg-emerald-50/50 px-2 py-1 rounded-lg text-slate-700">
-                                <span>📅 {p.month}</span>
+                              <div key={p.id} className="flex justify-between items-center text-[10px] bg-emerald-50/50 px-2.5 py-1 rounded-lg text-slate-700">
+                                <span className="font-semibold text-emerald-900">📅 {p.month}</span>
                                 <span className="font-bold text-emerald-800">- TSH {p.amount.toLocaleString()}</span>
                               </div>
                             ))}
@@ -333,10 +394,9 @@ export default function App() {
 
               <div className="bg-emerald-50 border border-emerald-100 p-3.5 rounded-2xl flex justify-between items-center">
                 <span className="text-[10px] font-bold text-emerald-800 uppercase">Extra Monthly Payload</span>
-                <span className="text-xs font-black text-emerald-900">TSH {extraSurplus.toLocaleString()}</span>
+                <span className="text-xs font-black text-emerald-900">TSH {disposableIncome.toLocaleString()}</span>
               </div>
 
-              {/* Clickable Strategy Cards */}
               <div className="grid grid-cols-2 gap-2">
                 <div 
                   onClick={() => setSelectedStrategy('avalanche')}
@@ -344,7 +404,7 @@ export default function App() {
                 >
                   <span className="text-[10px] font-bold text-amber-900 block mb-0.5">🔥 Avalanche</span>
                   <span className="text-[9px] text-gray-500 block mb-1">Highest APR First</span>
-                  <span className="text-xs font-extrabold text-slate-900">12 mos to free</span>
+                  <span className="text-xs font-extrabold text-slate-900">Optimized interest</span>
                 </div>
 
                 <div 
@@ -353,7 +413,7 @@ export default function App() {
                 >
                   <span className="text-[10px] font-bold text-blue-900 block mb-0.5">❄️ Snowball</span>
                   <span className="text-[9px] text-gray-500 block mb-1">Smallest Balance First</span>
-                  <span className="text-xs font-extrabold text-slate-900">13 mos to free</span>
+                  <span className="text-xs font-extrabold text-slate-900">Quick wins</span>
                 </div>
               </div>
 
@@ -370,7 +430,7 @@ export default function App() {
                         <div className="text-[10px] text-gray-400">Min: TSH {debt.minPayment.toLocaleString()} {index === 0 && <span className="text-emerald-600 font-bold ml-1">(+ Extra Target)</span>}</div>
                       </div>
                       <span className="font-extrabold text-slate-800">
-                        TSH {(debt.minPayment + (index === 0 ? extraSurplus : 0)).toLocaleString()}
+                        TSH {(debt.minPayment + (index === 0 ? disposableIncome : 0)).toLocaleString()}
                       </span>
                     </div>
                   ))}
@@ -379,55 +439,68 @@ export default function App() {
             </div>
           )}
 
-          {/* PROFILE & ESSENTIALS TAB */}
+          {/* PROFILE & INCOME SOURCES TAB */}
           {activeTab === 'profile' && (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-2 bg-slate-50 p-3 rounded-2xl border border-gray-100 text-xs">
-                <div><span className="w-2 h-2 rounded-full bg-cyan-400 inline-block mr-1"></span> Living Costs <br/><b>TSH {totalLivingCosts.toLocaleString()}</b></div>
-                <div><span className="w-2 h-2 rounded-full bg-rose-500 inline-block mr-1"></span> Min Debt Pay <br/><b>TSH {totalMinDebt.toLocaleString()}</b></div>
-                <div><span className="w-2 h-2 rounded-full bg-amber-400 inline-block mr-1"></span> Safety Buffer <br/><b>TSH {emergencyBuffer.toLocaleString()}</b></div>
-                <div><span className="w-2 h-2 rounded-full bg-emerald-500 inline-block mr-1"></span> Extra Surplus <br/><b>TSH {extraSurplus.toLocaleString()}</b></div>
+              
+              {/* Income Sources Section */}
+              <div className="bg-white border border-gray-100 rounded-2xl p-4 space-y-3">
+                <h4 className="text-xs font-bold text-slate-800">Sources of Income</h4>
+                <form onSubmit={handleAddIncomeSource} className="space-y-2">
+                  <input type="text" placeholder="Source Name (e.g., Salary, Consulting)" value={newIncomeName} onChange={(e) => setNewIncomeName(e.target.value)} className="w-full px-3 py-1.5 border rounded-lg text-xs" required />
+                  <input type="number" placeholder="Monthly Amount (TSH)" value={newIncomeAmount} onChange={(e) => setNewIncomeAmount(e.target.value)} className="w-full px-3 py-1.5 border rounded-lg text-xs" required />
+                  <button type="submit" className="w-full py-2 bg-emerald-600 text-white rounded-lg text-xs font-bold">Add Income Source</button>
+                </form>
+
+                <div className="space-y-2 pt-2">
+                  {incomeSources.map(source => (
+                    <div key={source.id} className="flex justify-between items-center bg-slate-50 border border-gray-100 p-2.5 rounded-xl text-xs">
+                      <span className="font-medium text-slate-800">{source.name}</span>
+                      <div className="flex items-center space-x-2">
+                        <span className="font-bold text-emerald-700">TSH {source.amount.toLocaleString()}</span>
+                        <button onClick={() => handleDeleteIncomeSource(source.id)} className="text-gray-400 hover:text-red-500">🗑️</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
 
+              {/* Living Costs & Essentials */}
               <div className="bg-white border border-gray-100 rounded-2xl p-4 space-y-3">
-                <h4 className="text-xs font-bold text-slate-800">Adjust Essentials & Income</h4>
-                <div>
-                  <label className="text-[10px] text-gray-500 uppercase font-semibold">Monthly Net Income (TSH)</label>
-                  <input type="number" value={netIncome} onChange={(e) => setNetIncome(Number(e.target.value))} className="w-full mt-1 px-3 py-2 border rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-                </div>
+                <h4 className="text-xs font-bold text-slate-800">Living Costs & Essentials</h4>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label className="text-[10px] text-gray-500 uppercase font-semibold">Housing</label>
-                    <input type="number" value={housing} onChange={(e) => setHousing(Number(e.target.value))} className="w-full mt-1 px-3 py-2 border rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                    <input type="number" value={housing} onChange={(e) => setHousing(Number(e.target.value))} className="w-full mt-1 px-3 py-2 border rounded-xl text-xs font-medium" />
                   </div>
                   <div>
                     <label className="text-[10px] text-gray-500 uppercase font-semibold">Food / Grocery</label>
-                    <input type="number" value={food} onChange={(e) => setFood(Number(e.target.value))} className="w-full mt-1 px-3 py-2 border rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                    <input type="number" value={food} onChange={(e) => setFood(Number(e.target.value))} className="w-full mt-1 px-3 py-2 border rounded-xl text-xs font-medium" />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label className="text-[10px] text-gray-500 uppercase font-semibold">Utilities / Airtime</label>
-                    <input type="number" value={utilities} onChange={(e) => setUtilities(Number(e.target.value))} className="w-full mt-1 px-3 py-2 border rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                    <input type="number" value={utilities} onChange={(e) => setUtilities(Number(e.target.value))} className="w-full mt-1 px-3 py-2 border rounded-xl text-xs font-medium" />
                   </div>
                   <div>
                     <label className="text-[10px] text-gray-500 uppercase font-semibold">Transport</label>
-                    <input type="number" value={transport} onChange={(e) => setTransport(Number(e.target.value))} className="w-full mt-1 px-3 py-2 border rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                    <input type="number" value={transport} onChange={(e) => setTransport(Number(e.target.value))} className="w-full mt-1 px-3 py-2 border rounded-xl text-xs font-medium" />
                   </div>
                 </div>
                 <div>
                   <label className="text-[10px] text-gray-500 uppercase font-semibold">Emergency Buffer (TSH)</label>
-                  <input type="number" value={emergencyBuffer} onChange={(e) => setEmergencyBuffer(Number(e.target.value))} className="w-full mt-1 px-3 py-2 border rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  <input type="number" value={emergencyBuffer} onChange={(e) => setEmergencyBuffer(Number(e.target.value))} className="w-full mt-1 px-3 py-2 border rounded-xl text-xs font-medium" />
                 </div>
               </div>
 
-              {/* Add Missing Essentials Option */}
+              {/* Add Missing Essentials */}
               <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 space-y-3">
-                <h4 className="text-xs font-bold text-slate-800">Add Missing Essential Categories</h4>
+                <h4 className="text-xs font-bold text-slate-800">Add Custom Essential Category</h4>
                 <form onSubmit={handleAddEssential} className="space-y-2">
-                  <input type="text" placeholder="Essential Name (e.g., Insurance, Medical)" value={newEssentialName} onChange={(e) => setNewEssentialName(e.target.value)} className="w-full px-3 py-1.5 border rounded-lg text-xs" required />
+                  <input type="text" placeholder="Category Name (e.g., Insurance)" value={newEssentialName} onChange={(e) => setNewEssentialName(e.target.value)} className="w-full px-3 py-1.5 border rounded-lg text-xs" required />
                   <input type="number" placeholder="Monthly Amount (TSH)" value={newEssentialAmount} onChange={(e) => setNewEssentialAmount(e.target.value)} className="w-full px-3 py-1.5 border rounded-lg text-xs" required />
-                  <button type="submit" className="w-full py-2 bg-slate-900 text-white rounded-lg text-xs font-bold">Add Essential</button>
+                  <button type="submit" className="w-full py-2 bg-slate-900 text-white rounded-lg text-xs font-bold">Add Category</button>
                 </form>
 
                 {customEssentials.length > 0 && (
@@ -435,7 +508,7 @@ export default function App() {
                     {customEssentials.map(item => (
                       <div key={item.id} className="flex justify-between items-center bg-white border border-gray-100 p-2 rounded-xl text-xs">
                         <span>{item.name}: <b>TSH {item.amount.toLocaleString()}</b></span>
-                        <button onClick={() => handleDeleteEssential(item.id)} className="text-gray-400 hover:text-red-500 text-xs">🗑️</button>
+                        <button onClick={() => handleDeleteEssential(item.id)} className="text-gray-400 hover:text-red-500">🗑️</button>
                       </div>
                     ))}
                   </div>
