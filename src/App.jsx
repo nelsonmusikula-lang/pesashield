@@ -25,19 +25,39 @@ export default function App() {
   const [newEssentialName, setNewEssentialName] = useState('');
   const [newEssentialAmount, setNewEssentialAmount] = useState('');
 
-  // Debts State (with duration/end-date tracking)
+  // Debts State (with Payment Logs)
   const [debts, setDebts] = useState([
-    { id: 1, name: 'K-Finance', balance: 10000000, minPayment: 1300000, apr: 18, durationMonths: 12 },
-    { id: 2, name: 'Helen', balance: 4000000, minPayment: 500000, apr: 10, durationMonths: 10 }
+    { 
+      id: 1, 
+      name: 'K-Finance', 
+      balance: 10000000, 
+      minPayment: 1300000, 
+      apr: 18, 
+      durationMonths: 12,
+      payments: [] 
+    },
+    { 
+      id: 2, 
+      name: 'Helen', 
+      balance: 4000000, 
+      minPayment: 500000, 
+      apr: 10, 
+      durationMonths: 10,
+      payments: [] 
+    }
   ]);
+  
   const [newDebtName, setNewDebtName] = useState('');
   const [newDebtBalance, setNewDebtBalance] = useState('');
   const [newDebtMin, setNewDebtMin] = useState('');
   const [newDebtApr, setNewDebtApr] = useState('');
   const [newDebtDuration, setNewDebtDuration] = useState('');
 
+  // Payment Logging Input State
+  const [paymentInput, setPaymentInput] = useState({});
+
   // Payoff Strategy State
-  const [selectedStrategy, setSelectedStrategy] = useState('avalanche'); // 'avalanche' or 'snowball'
+  const [selectedStrategy, setSelectedStrategy] = useState('avalanche');
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -84,6 +104,7 @@ export default function App() {
       minPayment: Number(newDebtMin || 0),
       apr: Number(newDebtApr || 0),
       durationMonths: Number(newDebtDuration || 12),
+      payments: [],
       user_id: session.user.id
     };
     setDebts([...debts, debtObj]);
@@ -96,6 +117,33 @@ export default function App() {
 
   const handleDeleteDebt = (id) => {
     setDebts(debts.filter(d => d.id !== id));
+  };
+
+  const handleLogPayment = (debtId) => {
+    const amountPaid = Number(paymentInput[debtId]);
+    if (!amountPaid || amountPaid <= 0) return;
+
+    const currentMonth = new Date().toLocaleString('default', { month: 'short', year: 'numeric' });
+
+    setDebts(debts.map(debt => {
+      if (debt.id === debtId) {
+        const newBalance = Math.max(0, debt.balance - amountPaid);
+        const newPaymentRecord = {
+          id: Date.now(),
+          month: currentMonth,
+          amount: amountPaid
+        };
+        return {
+          ...debt,
+          balance: newBalance,
+          payments: [newPaymentRecord, ...(debt.payments || [])]
+        };
+      }
+      return debt;
+    }));
+
+    // Clear input for this specific debt
+    setPaymentInput({ ...paymentInput, [debtId]: '' });
   };
 
   const handleAddEssential = (e) => {
@@ -113,9 +161,9 @@ export default function App() {
   // Strategy sorting
   const sortedDebts = [...debts].sort((a, b) => {
     if (selectedStrategy === 'avalanche') {
-      return b.apr - a.apr; // Highest APR first
+      return b.apr - a.apr;
     } else {
-      return a.balance - b.balance; // Smallest Balance first
+      return a.balance - b.balance;
     }
   });
 
@@ -180,12 +228,12 @@ export default function App() {
             </div>
           )}
 
-          {/* DEBTS TAB */}
+          {/* DEBTS & PAYMENT LOG TAB */}
           {activeTab === 'debts' && (
             <div className="space-y-4">
               <div>
-                <h3 className="text-xs font-bold text-slate-900 uppercase">Your Debts & Lender Terms</h3>
-                <p className="text-[10px] text-gray-400">Track balance, agreed loan duration, and target end dates</p>
+                <h3 className="text-xs font-bold text-slate-900 uppercase">Debts & Monthly Payment Log</h3>
+                <p className="text-[10px] text-gray-400">Log payments to automatically deduct remaining balances</p>
               </div>
 
               <div className="grid grid-cols-2 gap-2">
@@ -214,8 +262,8 @@ export default function App() {
                 <button type="submit" className="w-full py-2 bg-slate-900 text-white rounded-lg text-xs font-bold">Add Debt</button>
               </form>
 
-              {/* Debt List with Duration & End Date */}
-              <div className="space-y-2">
+              {/* Debts List with Payment Logs */}
+              <div className="space-y-3">
                 {debts.map(debt => {
                   const duration = debt.durationMonths || 12;
                   const endDate = new Date();
@@ -223,17 +271,51 @@ export default function App() {
                   const formattedEndDate = endDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 
                   return (
-                    <div key={debt.id} className="bg-white border border-gray-100 shadow-sm rounded-2xl p-3 flex justify-between items-center">
-                      <div>
-                        <h4 className="text-xs font-bold text-slate-800">{debt.name}</h4>
-                        <div className="grid grid-cols-2 gap-x-4 mt-1 text-[10px] text-gray-500">
-                          <span>Balance: <b>TSH {debt.balance.toLocaleString()}</b></span>
-                          <span>Min Pay: <b>TSH {debt.minPayment.toLocaleString()}</b></span>
-                          <span className="text-emerald-700">Duration: <b>{duration} mos</b></span>
-                          <span className="text-indigo-600">End Date: <b>{formattedEndDate}</b></span>
+                    <div key={debt.id} className="bg-white border border-gray-100 shadow-sm rounded-2xl p-3 space-y-3">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h4 className="text-xs font-bold text-slate-800">{debt.name}</h4>
+                          <div className="grid grid-cols-2 gap-x-4 mt-1 text-[10px] text-gray-500">
+                            <span>Balance: <b className="text-slate-900">TSH {debt.balance.toLocaleString()}</b></span>
+                            <span>Min Pay: <b>TSH {debt.minPayment.toLocaleString()}</b></span>
+                            <span className="text-emerald-700">Duration: <b>{duration} mos</b></span>
+                            <span className="text-indigo-600">End Date: <b>{formattedEndDate}</b></span>
+                          </div>
                         </div>
+                        <button onClick={() => handleDeleteDebt(debt.id)} className="text-gray-400 hover:text-red-500 text-xs">🗑️</button>
                       </div>
-                      <button onClick={() => handleDeleteDebt(debt.id)} className="text-gray-400 hover:text-red-500 text-xs ml-2">🗑️</button>
+
+                      {/* Log Payment Input Box */}
+                      <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 flex items-center space-x-2">
+                        <input 
+                          type="number" 
+                          placeholder="Amount paid this month" 
+                          value={paymentInput[debt.id] || ''} 
+                          onChange={(e) => setPaymentInput({ ...paymentInput, [debt.id]: e.target.value })} 
+                          className="flex-1 px-2.5 py-1.5 bg-white border rounded-lg text-xs"
+                        />
+                        <button 
+                          onClick={() => handleLogPayment(debt.id)} 
+                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-sm"
+                        >
+                          Log Payment
+                        </button>
+                      </div>
+
+                      {/* Payment History Log Display */}
+                      {debt.payments && debt.payments.length > 0 && (
+                        <div className="border-t border-gray-100 pt-2 space-y-1">
+                          <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 block">Payment History</span>
+                          <div className="max-h-24 overflow-y-auto space-y-1">
+                            {debt.payments.map(p => (
+                              <div key={p.id} className="flex justify-between items-center text-[10px] bg-emerald-50/50 px-2 py-1 rounded-lg text-slate-700">
+                                <span>📅 {p.month}</span>
+                                <span className="font-bold text-emerald-800">- TSH {p.amount.toLocaleString()}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -285,7 +367,7 @@ export default function App() {
                     <div key={debt.id} className="bg-white border border-gray-100 p-3 rounded-xl flex justify-between items-center text-xs">
                       <div>
                         <span className="font-bold text-slate-900">{debt.name}</span>
-                        <div className="text-[10px] text-gray-400">Min: TSH {debt.minPayment.toLocaleString()} {index === 0 && <span className="text-emerald-600 font-bold ml-1">(+ Extra Payload Target)</span>}</div>
+                        <div className="text-[10px] text-gray-400">Min: TSH {debt.minPayment.toLocaleString()} {index === 0 && <span className="text-emerald-600 font-bold ml-1">(+ Extra Target)</span>}</div>
                       </div>
                       <span className="font-extrabold text-slate-800">
                         TSH {(debt.minPayment + (index === 0 ? extraSurplus : 0)).toLocaleString()}
