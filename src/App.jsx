@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
-// Initialize Supabase Client
-const SUPABASE_URL = 'https://whatksidsddgixhazxi.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZWYy...'; // Replace with your actual anon public key if needed
+// Initialize Supabase Client with your real credentials
+const SUPABASE_URL = 'https://whattksidsddgixhazxi.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_YDAnYAAolVL7ey5QC1cNhw_1Jv1Zi9O';
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 export default function App() {
