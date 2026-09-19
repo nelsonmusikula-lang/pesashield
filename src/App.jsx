@@ -32,7 +32,7 @@ export default function App() {
   const [newEssentialName, setNewEssentialName] = useState('');
   const [newEssentialAmount, setNewEssentialAmount] = useState('');
 
-  // Debts State (with Payment Logs)
+  // Debts State (with Due Days and Payment Logs)
   const [debts, setDebts] = useState([
     { 
       id: 1, 
@@ -41,6 +41,7 @@ export default function App() {
       minPayment: 1300000, 
       apr: 18, 
       durationMonths: 12,
+      dueDay: 28,
       payments: [] 
     },
     { 
@@ -50,6 +51,7 @@ export default function App() {
       minPayment: 500000, 
       apr: 10, 
       durationMonths: 10,
+      dueDay: 15,
       payments: [] 
     }
   ]);
@@ -59,6 +61,7 @@ export default function App() {
   const [newDebtMin, setNewDebtMin] = useState('');
   const [newDebtApr, setNewDebtApr] = useState('');
   const [newDebtDuration, setNewDebtDuration] = useState('');
+  const [newDebtDueDay, setNewDebtDueDay] = useState('');
 
   // Payment Logging Input State
   const [paymentInput, setPaymentInput] = useState({});
@@ -66,6 +69,9 @@ export default function App() {
 
   // Payoff Strategy State
   const [selectedStrategy, setSelectedStrategy] = useState('avalanche');
+
+  // Notification Status State
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -101,9 +107,30 @@ export default function App() {
   
   const totalMinDebt = debts.reduce((sum, d) => sum + Number(d.minPayment), 0);
   const totalOutstanding = debts.reduce((sum, d) => sum + Number(d.balance), 0);
-  
-  // Reduced Disposable Income after deductions, essentials, and debt obligations
   const disposableIncome = totalNetIncome - (totalLivingCosts + totalMinDebt + emergencyBuffer);
+
+  // Check pending payments for the current selected month
+  const pendingDebtsCount = debts.filter(debt => {
+    const paidThisMonth = debt.payments?.some(p => p.month === selectedMonth);
+    return !paidThisMonth && debt.balance > 0;
+  }).length;
+
+  const requestBrowserNotifications = async () => {
+    if (!("Notification" in window)) {
+      alert("This browser does not support desktop notifications.");
+      return;
+    }
+    const permission = await Notification.requestPermission();
+    if (permission === "granted") {
+      setNotificationsEnabled(true);
+      new Notification("PesaShield Reminders Enabled", {
+        body: "You will now receive alerts for upcoming debt due dates and monthly payments.",
+        icon: "/favicon.ico"
+      });
+    } else {
+      alert("Notification permission denied.");
+    }
+  };
 
   const handleAddIncomeSource = (e) => {
     e.preventDefault();
@@ -127,6 +154,7 @@ export default function App() {
       minPayment: Number(newDebtMin || 0),
       apr: Number(newDebtApr || 0),
       durationMonths: Number(newDebtDuration || 12),
+      dueDay: Number(newDebtDueDay || 28),
       payments: [],
       user_id: session.user.id
     };
@@ -136,6 +164,7 @@ export default function App() {
     setNewDebtMin('');
     setNewDebtApr('');
     setNewDebtDuration('');
+    setNewDebtDueDay('');
   };
 
   const handleDeleteDebt = (id) => {
@@ -154,6 +183,14 @@ export default function App() {
           month: selectedMonth,
           amount: amountPaid
         };
+        
+        // Trigger browser notification if enabled
+        if (notificationsEnabled && "Notification" in window) {
+          new Notification(`Payment Logged: ${debt.name}`, {
+            body: `Successfully recorded TSH ${amountPaid.toLocaleString()} for ${selectedMonth}. Remaining balance: TSH ${newBalance.toLocaleString()}`
+          });
+        }
+
         return {
           ...debt,
           balance: newBalance,
@@ -213,12 +250,27 @@ export default function App() {
           {/* SHIELD TAB */}
           {activeTab === 'shield' && (
             <div className="space-y-4">
-              <div className="bg-amber-50 border border-amber-200/60 rounded-2xl p-4">
-                <h3 className="text-xs font-bold text-amber-900 flex items-center space-x-1 mb-1">
-                  <span>⚠️</span> <span>Cashflow & Debt Burden Analysis</span>
-                </h3>
-                <p className="text-[11px] text-amber-800/80 leading-relaxed">
-                  Your income is dynamically reduced by essentials, safety buffers, and minimum loan commitments to show your true disposable funds.
+              
+              {/* Notification Banner Alert */}
+              <div className={`border rounded-2xl p-4 transition ${pendingDebtsCount > 0 ? 'bg-amber-50 border-amber-200' : 'bg-emerald-50 border-emerald-200'}`}>
+                <div className="flex justify-between items-center mb-1">
+                  <h3 className={`text-xs font-bold flex items-center space-x-1 ${pendingDebtsCount > 0 ? 'text-amber-900' : 'text-emerald-900'}`}>
+                    <span>{pendingDebtsCount > 0 ? '🔔' : '✅'}</span> 
+                    <span>{pendingDebtsCount > 0 ? `${pendingDebtsCount} Payment(s) Due for ${selectedMonth}` : `All Payments Settled for ${selectedMonth}`}</span>
+                  </h3>
+                  {!notificationsEnabled && (
+                    <button 
+                      onClick={requestBrowserNotifications}
+                      className="text-[10px] bg-slate-900 text-white px-2.5 py-1 rounded-lg font-bold shadow-sm"
+                    >
+                      Enable Push Alerts
+                    </button>
+                  )}
+                </div>
+                <p className={`text-[11px] ${pendingDebtsCount > 0 ? 'text-amber-800/80' : 'text-emerald-800/80'}`}>
+                  {pendingDebtsCount > 0 
+                    ? 'Check your Debts tab to log payments and keep your payment streaks active.' 
+                    : 'Fantastic job! Your active debt reminders and milestones are fully up to date.'}
                 </p>
               </div>
 
@@ -254,12 +306,12 @@ export default function App() {
             </div>
           )}
 
-          {/* DEBTS & MONTHLY LOG TAB */}
+          {/* DEBTS & REMINDERS TAB */}
           {activeTab === 'debts' && (
             <div className="space-y-4">
               <div>
-                <h3 className="text-xs font-bold text-slate-900 uppercase">Debts & Monthly Payment Records</h3>
-                <p className="text-[10px] text-gray-400">Select month and log payments to automatically deduct balances</p>
+                <h3 className="text-xs font-bold text-slate-900 uppercase">Debts & Payment Reminders</h3>
+                <p className="text-[10px] text-gray-400">Track due dates, log monthly payments, and trigger notifications</p>
               </div>
 
               <div className="grid grid-cols-2 gap-2">
@@ -273,7 +325,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Month Selector for Logging */}
+              {/* Month Selector */}
               <div className="bg-indigo-50 border border-indigo-100 p-3 rounded-2xl flex items-center justify-between">
                 <span className="text-[10px] font-bold text-indigo-900 uppercase">Target Payment Month:</span>
                 <select 
@@ -310,43 +362,48 @@ export default function App() {
 
               {/* Add Debt Form */}
               <form onSubmit={handleAddDebt} className="bg-slate-50 border border-slate-100 p-3 rounded-2xl space-y-2">
-                <span className="text-[10px] font-bold text-slate-700 uppercase">Add New Debt</span>
+                <span className="text-[10px] font-bold text-slate-700 uppercase">Add New Debt & Due Day</span>
                 <input type="text" placeholder="Lender / Debt Name" value={newDebtName} onChange={(e) => setNewDebtName(e.target.value)} className="w-full px-3 py-1.5 border rounded-lg text-xs" required />
                 <div className="grid grid-cols-2 gap-1">
                   <input type="number" placeholder="Balance (TSH)" value={newDebtBalance} onChange={(e) => setNewDebtBalance(e.target.value)} className="px-2 py-1.5 border rounded-lg text-xs" required />
                   <input type="number" placeholder="Min Pay (TSH)" value={newDebtMin} onChange={(e) => setNewDebtMin(e.target.value)} className="px-2 py-1.5 border rounded-lg text-xs" required />
                 </div>
-                <div className="grid grid-cols-2 gap-1">
+                <div className="grid grid-cols-3 gap-1">
                   <input type="number" placeholder="APR %" value={newDebtApr} onChange={(e) => setNewDebtApr(e.target.value)} className="px-2 py-1.5 border rounded-lg text-xs" />
-                  <input type="number" placeholder="Duration (Months)" value={newDebtDuration} onChange={(e) => setNewDebtDuration(e.target.value)} className="px-2 py-1.5 border rounded-lg text-xs" />
+                  <input type="number" placeholder="Duration (Mos)" value={newDebtDuration} onChange={(e) => setNewDebtDuration(e.target.value)} className="px-2 py-1.5 border rounded-lg text-xs" />
+                  <input type="number" placeholder="Due Day (1-31)" value={newDebtDueDay} onChange={(e) => setNewDebtDueDay(e.target.value)} className="px-2 py-1.5 border rounded-lg text-xs" />
                 </div>
                 <button type="submit" className="w-full py-2 bg-slate-900 text-white rounded-lg text-xs font-bold">Add Debt</button>
               </form>
 
-              {/* Debts List with Separate Monthly Records */}
+              {/* Debts List with Reminders */}
               <div className="space-y-3">
                 {debts.map(debt => {
                   const duration = debt.durationMonths || 12;
-                  const endDate = new Date();
-                  endDate.setMonth(endDate.getMonth() + duration);
-                  const formattedEndDate = endDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+                  const dueDay = debt.dueDay || 28;
+                  const isPaidThisMonth = debt.payments?.some(p => p.month === selectedMonth);
 
                   return (
                     <div key={debt.id} className="bg-white border border-gray-100 shadow-sm rounded-2xl p-3 space-y-3">
                       <div className="flex justify-between items-start">
                         <div>
-                          <h4 className="text-xs font-bold text-slate-800">{debt.name}</h4>
+                          <div className="flex items-center space-x-2">
+                            <h4 className="text-xs font-bold text-slate-800">{debt.name}</h4>
+                            <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold ${isPaidThisMonth ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                              {isPaidThisMonth ? '✓ Paid this month' : `Due on day ${dueDay}`}
+                            </span>
+                          </div>
                           <div className="grid grid-cols-2 gap-x-4 mt-1 text-[10px] text-gray-500">
                             <span>Balance: <b className="text-slate-900">TSH {debt.balance.toLocaleString()}</b></span>
                             <span>Min Pay: <b>TSH {debt.minPayment.toLocaleString()}</b></span>
                             <span className="text-emerald-700">Duration: <b>{duration} mos</b></span>
-                            <span className="text-indigo-600">End Date: <b>{formattedEndDate}</b></span>
+                            <span className="text-indigo-600">Reminder: <b>Monthly on {dueDay}th</b></span>
                           </div>
                         </div>
                         <button onClick={() => handleDeleteDebt(debt.id)} className="text-gray-400 hover:text-red-500 text-xs">🗑️</button>
                       </div>
 
-                      {/* Log Payment for Selected Month */}
+                      {/* Log Payment */}
                       <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 flex items-center space-x-2">
                         <input 
                           type="number" 
@@ -363,11 +420,11 @@ export default function App() {
                         </button>
                       </div>
 
-                      {/* Payment History Records By Month */}
+                      {/* History Log */}
                       {debt.payments && debt.payments.length > 0 && (
                         <div className="border-t border-gray-100 pt-2 space-y-1">
-                          <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 block">Monthly Payment History Records</span>
-                          <div className="max-h-28 overflow-y-auto space-y-1">
+                          <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 block">Payment Records</span>
+                          <div className="max-h-24 overflow-y-auto space-y-1">
                             {debt.payments.map(p => (
                               <div key={p.id} className="flex justify-between items-center text-[10px] bg-emerald-50/50 px-2.5 py-1 rounded-lg text-slate-700">
                                 <span className="font-semibold text-emerald-900">📅 {p.month}</span>
@@ -439,11 +496,10 @@ export default function App() {
             </div>
           )}
 
-          {/* PROFILE & INCOME SOURCES TAB */}
+          {/* PROFILE TAB */}
           {activeTab === 'profile' && (
             <div className="space-y-4">
               
-              {/* Income Sources Section */}
               <div className="bg-white border border-gray-100 rounded-2xl p-4 space-y-3">
                 <h4 className="text-xs font-bold text-slate-800">Sources of Income</h4>
                 <form onSubmit={handleAddIncomeSource} className="space-y-2">
@@ -465,7 +521,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Living Costs & Essentials */}
               <div className="bg-white border border-gray-100 rounded-2xl p-4 space-y-3">
                 <h4 className="text-xs font-bold text-slate-800">Living Costs & Essentials</h4>
                 <div className="grid grid-cols-2 gap-2">
@@ -494,7 +549,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Add Missing Essentials */}
               <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 space-y-3">
                 <h4 className="text-xs font-bold text-slate-800">Add Custom Essential Category</h4>
                 <form onSubmit={handleAddEssential} className="space-y-2">
