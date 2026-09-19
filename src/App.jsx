@@ -1,758 +1,314 @@
-import React, { useState, useEffect } from "react";
-import { BrowserRouter as Router, Routes, Route, Link, useLocation } from "react-router-dom";
-import { supabase } from "./supabaseClient";
-import { 
-  Shield, 
-  DollarSign, 
-  TrendingUp, 
-  User, 
-  Trash2, 
-  Plus, 
-  AlertTriangle,
-  Info,
-  X
-} from "lucide-react";
+import React, { useState, useEffect } from 'react';
+import { createClient } from '@supabase/supabase-js';
+import Auth from './Auth';
 
-// Helper: Amortization Calculator for Avalanche & Snowball strategies
-function calculatePayoffStrategy(debtsList, extraPayload, strategyType) {
-  if (!debtsList || debtsList.length === 0) {
-    return { months: 0, totalInterest: 0, month1Payments: {} };
-  }
+const supabase = createClient(
+  import.meta.env.VITE_SUPABASE_URL,
+  import.meta.env.VITE_SUPABASE_ANON_KEY
+);
 
-  // Clone debts so original state isn't mutated
-  let debts = debtsList.map(d => ({ ...d, currentBalance: Number(d.balance) || 0 }));
-  
-  // Sort debts based on strategy
-  if (strategyType === "avalanche") {
-    debts.sort((a, b) => b.apr - a.apr); // Highest APR first
-  } else if (strategyType === "snowball") {
-    debts.sort((a, b) => a.balance - b.balance); // Smallest Balance first
-  }
+export default function App() {
+  const [session, setSession] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('shield');
 
-  let totalInterest = 0;
-  let month = 0;
-  let month1Payments = {};
-  const maxMonths = 360; // Safety cap (30 years)
+  // Profile and budget state
+  const [netIncome, setNetIncome] = useState(1200000);
+  const [housing, setHousing] = useState(350000);
+  const [food, setFood] = useState(250000);
+  const [utilities, setUtilities] = useState(80000);
+  const [transport, setTransport] = useState(100000);
+  const [emergencyBuffer, setEmergencyBuffer] = useState(100000);
 
-  while (debts.some(d => d.currentBalance > 0) && month < maxMonths) {
-    month++;
-    let availableExtra = parseFloat(extraPayload) || 0;
+  // Debts state
+  const [debts, setDebts] = useState([
+    { id: 1, name: 'wee', balance: 112234, minPayment: 11, apr: 0 }
+  ]);
+  const [newDebtName, setNewDebtName] = useState('');
+  const [newDebtBalance, setNewDebtBalance] = useState('');
+  const [newDebtMin, setNewDebtMin] = useState('');
+  const [newDebtApr, setNewDebtApr] = useState('');
 
-    // 1. Accrue monthly interest
-    debts.forEach(d => {
-      if (d.currentBalance > 0) {
-        const monthlyInterest = (d.currentBalance * (d.apr / 100)) / 12;
-        d.currentBalance += monthlyInterest;
-        totalInterest += monthlyInterest;
-      }
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setLoading(false);
     });
 
-    // 2. Apply minimum payments
-    debts.forEach(d => {
-      if (d.currentBalance > 0) {
-        const minPay = Number(d.min_payment) || 0;
-        const payAmount = Math.min(d.currentBalance, minPay);
-        d.currentBalance -= payAmount;
-        if (month === 1) {
-          month1Payments[d.id] = (month1Payments[d.id] || 0) + payAmount;
-        }
-      }
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      setLoading(false);
     });
 
-    // 3. Apply extra payload to priority debt target
-    for (let d of debts) {
-      if (d.currentBalance > 0 && availableExtra > 0) {
-        const extraPay = Math.min(d.currentBalance, availableExtra);
-        d.currentBalance -= extraPay;
-        availableExtra -= extraPay;
-        if (month === 1) {
-          month1Payments[d.id] = (month1Payments[d.id] || 0) + extraPay;
-        }
-      }
-    }
+    return () => subscription.unsubscribe();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-50">
+        <p className="text-gray-500 font-medium">Loading PesaShield...</p>
+      </div>
+    );
   }
 
-  return { months: month, totalInterest: Math.round(totalInterest), month1Payments };
-}
+  if (!session) {
+    return <Auth onLogin={(user) => setSession({ user })} />;
+  }
 
-// Bottom Navigation Bar
-function BottomNav() {
-  const location = useLocation();
-  const isActive = (path) => location.pathname === path;
+  // Calculations
+  const totalLivingCosts = housing + food + utilities + transport;
+  const totalMinDebt = debts.reduce((sum, d) => sum + Number(d.minPayment), 0);
+  const totalOutstanding = debts.reduce((sum, d) => sum + Number(d.balance), 0);
+  const extraSurplus = netIncome - (totalLivingCosts + totalMinDebt + emergencyBuffer);
 
-  return (
-    <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 py-2 px-6 flex justify-between items-center max-w-md mx-auto z-40">
-      <Link to="/" className={`flex flex-col items-center text-xs font-medium ${isActive("/") ? "text-emerald-600 font-bold" : "text-gray-400 hover:text-gray-600"}`}>
-        <Shield className="w-5 h-5 mb-0.5" />
-        <span>Shield</span>
-      </Link>
-
-      <Link to="/debts" className={`flex flex-col items-center text-xs font-medium ${isActive("/debts") ? "text-emerald-600 font-bold" : "text-gray-400 hover:text-gray-600"}`}>
-        <DollarSign className="w-5 h-5 mb-0.5" />
-        <span>Debts</span>
-      </Link>
-
-      <Link to="/strategy" className={`flex flex-col items-center text-xs font-medium ${isActive("/strategy") ? "text-emerald-600 font-bold" : "text-gray-400 hover:text-gray-600"}`}>
-        <TrendingUp className="w-5 h-5 mb-0.5" />
-        <span>Payoff</span>
-      </Link>
-
-      <Link to="/profile" className={`flex flex-col items-center text-xs font-medium ${isActive("/profile") ? "text-emerald-600 font-bold" : "text-gray-400 hover:text-gray-600"}`}>
-        <User className="w-5 h-5 mb-0.5" />
-        <span>Profile</span>
-      </Link>
-    </div>
-  );
-}
-
-// Header Component
-function Header() {
-  return (
-    <div className="flex justify-between items-center mb-6 pt-2">
-      <div className="flex items-center gap-2">
-        <div className="w-8 h-8 rounded-full bg-emerald-600 flex items-center justify-center text-white">
-          <Shield className="w-5 h-5 fill-current text-white" />
-        </div>
-        <div>
-          <h1 className="text-base font-bold text-gray-900 leading-tight">PESASHIELD</h1>
-          <p className="text-[10px] text-gray-400 font-medium tracking-wide">Financial Protection & Strategy</p>
-        </div>
-      </div>
-
-      <div className="text-right">
-        <p className="text-[10px] text-gray-400">User Profile</p>
-        <p className="text-xs font-bold text-gray-800">Amani</p>
-      </div>
-    </div>
-  );
-}
-
-// 1. Shield View
-function ShieldView() {
-  return (
-    <div className="space-y-4 pb-20">
-      <Header />
-
-      <div className="bg-gray-100 p-1 rounded-xl flex text-xs font-medium text-gray-600">
-        <button className="flex-1 py-1.5 rounded-lg bg-white shadow-sm text-center font-bold text-gray-800 flex justify-center items-center gap-1">
-          <Shield className="w-3.5 h-3.5" /> Overview
-        </button>
-        <button className="flex-1 py-1.5 rounded-lg text-center hover:text-gray-800">
-          History
-        </button>
-      </div>
-
-      <div className="bg-amber-50 border border-amber-200/60 rounded-2xl p-4 space-y-1">
-        <div className="flex items-center gap-2 text-amber-800 font-bold text-sm">
-          <AlertTriangle className="w-4 h-4 text-amber-600" />
-          <span>Moderate Debt Burden</span>
-        </div>
-        <p className="text-xs text-amber-700/90 leading-relaxed">
-          Debt is consuming a significant portion of income. Limit discretionary spend and avoid new loans.
-        </p>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <div className="bg-white border border-gray-100 p-3.5 rounded-2xl shadow-sm">
-          <p className="text-[11px] text-purple-600 font-medium mb-1">Acceleration Surplus</p>
-          <p className="text-sm font-bold text-gray-900">TSh 45,000</p>
-          <p className="text-[10px] text-gray-400 mt-0.5">Monthly debt payload</p>
-        </div>
-
-        <div className="bg-white border border-gray-100 p-3.5 rounded-2xl shadow-sm">
-          <p className="text-[11px] text-emerald-600 font-medium mb-1">Safe Daily Spend</p>
-          <p className="text-sm font-bold text-gray-900">TSh 1,500</p>
-          <p className="text-[10px] text-gray-400 mt-0.5">Discretionary safe cap</p>
-        </div>
-      </div>
-
-      <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm space-y-4">
-        <h2 className="text-xs font-bold text-gray-800">Income & Allocation</h2>
-
-        <div className="flex justify-center items-center relative py-4">
-          <div className="w-44 h-44 rounded-full border-[18px] border-sky-400 border-t-rose-500 border-r-amber-400 flex flex-col justify-center items-center">
-            <span className="text-[9px] font-bold text-gray-400 tracking-wider">NET INCOME</span>
-            <span className="text-xs font-extrabold text-gray-900">TSh 1,200,000</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// 2. Debts View
-function DebtsView({ debts, setDebts, loading }) {
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [activePaymentDebt, setActivePaymentDebt] = useState(null);
-
-  // Form states
-  const [newDebtName, setNewDebtName] = useState("");
-  const [newDebtType, setNewDebtType] = useState("");
-  const [newBalance, setNewBalance] = useState("");
-  const [newMinPayment, setNewMinPayment] = useState("");
-  const [newApr, setNewApr] = useState("");
-  const [paymentAmount, setPaymentAmount] = useState("");
-
-  const totalOutstanding = debts.reduce((sum, d) => sum + (Number(d.balance) || 0), 0);
-  const totalMinObligations = debts.reduce((sum, d) => sum + (Number(d.min_payment) || 0), 0);
-
-  // Add Debt to Supabase
-  const handleAddDebt = async (e) => {
+  const handleAddDebt = (e) => {
     e.preventDefault();
-    if (!newDebtName || !newBalance) return;
-
-    const newEntry = {
+    if (!newDebtName || !newDebtBalance) return;
+    const debtObj = {
+      id: Date.now(),
       name: newDebtName,
-      type: newDebtType || "Loan",
-      balance: parseFloat(newBalance) || 0,
-      min_payment: parseFloat(newMinPayment) || 0,
-      apr: parseFloat(newApr) || 0,
+      balance: Number(newDebtBalance),
+      minPayment: Number(newDebtMin || 0),
+      apr: Number(newDebtApr || 0),
+      user_id: session.user.id
     };
-
-    const { data, error } = await supabase
-      .from("debts")
-      .insert([newEntry])
-      .select();
-
-    if (error) {
-      alert("Error adding debt: " + error.message);
-    } else if (data) {
-      setDebts([...debts, data[0]]);
-      setNewDebtName("");
-      setNewDebtType("");
-      setNewBalance("");
-      setNewMinPayment("");
-      setNewApr("");
-      setIsAddModalOpen(false);
-    }
+    setDebts([...debts, debtObj]);
+    setNewDebtName('');
+    setNewDebtBalance('');
+    setNewDebtMin('');
+    setNewDebtApr('');
   };
 
-  // Delete Debt from Supabase
-  const handleDeleteDebt = async (id) => {
-    const { error } = await supabase
-      .from("debts")
-      .delete()
-      .eq("id", id);
-
-    if (error) {
-      alert("Error deleting debt: " + error.message);
-    } else {
-      setDebts(debts.filter((d) => d.id !== id));
-    }
-  };
-
-  // Log Payment to Supabase
-  const handleLogPayment = async (e) => {
-    e.preventDefault();
-    if (!activePaymentDebt || !paymentAmount) return;
-
-    const payVal = parseFloat(paymentAmount) || 0;
-    const newBal = Math.max(0, activePaymentDebt.balance - payVal);
-
-    const { data, error } = await supabase
-      .from("debts")
-      .update({ balance: newBal })
-      .eq("id", activePaymentDebt.id)
-      .select();
-
-    if (error) {
-      alert("Error updating balance: " + error.message);
-    } else if (data) {
-      setDebts(debts.map((d) => (d.id === activePaymentDebt.id ? data[0] : d)));
-      setPaymentAmount("");
-      setActivePaymentDebt(null);
-    }
+  const handleDeleteDebt = (id) => {
+    setDebts(debts.filter(d => d.id !== id));
   };
 
   return (
-    <div className="space-y-4 pb-20 relative">
-      <Header />
-
-      <div className="flex justify-between items-center">
-        <div>
-          <h2 className="text-base font-bold text-gray-900">Your Debts</h2>
-          <p className="text-[10px] text-gray-400">Track balance, APRs, and min payments</p>
-        </div>
-        <button
-          onClick={() => setIsAddModalOpen(true)}
-          className="bg-slate-900 text-white text-xs font-medium px-3 py-1.5 rounded-xl flex items-center gap-1 shadow-sm hover:bg-slate-800 transition"
-        >
-          <Plus className="w-3.5 h-3.5" /> Add Debt
-        </button>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <div className="bg-slate-900 text-white p-3.5 rounded-2xl shadow-sm">
-          <p className="text-[10px] text-gray-400 mb-1">Total Outstanding</p>
-          <p className="text-xs font-bold">TSh {totalOutstanding.toLocaleString()}</p>
-        </div>
-
-        <div className="bg-white border border-gray-100 p-3.5 rounded-2xl shadow-sm">
-          <p className="text-[10px] text-gray-400 mb-1">Min Monthly Obligations</p>
-          <p className="text-xs font-bold text-gray-900">TSh {totalMinObligations.toLocaleString()}</p>
-        </div>
-      </div>
-
-      <div className="space-y-3">
-        {loading ? (
-          <div className="p-6 text-center text-xs text-gray-400 border border-dashed border-gray-200 rounded-2xl">
-            Loading debts from Supabase...
+    <div className="min-h-screen bg-slate-100 flex flex-col items-center justify-start py-6 px-4">
+      {/* Main Container */}
+      <div className="w-full max-w-md bg-white rounded-3xl shadow-xl overflow-hidden flex flex-col border border-gray-100 relative pb-20">
+        
+        {/* App Header */}
+        <div className="p-5 border-b border-gray-100 flex justify-between items-center bg-white">
+          <div>
+            <div className="flex items-center space-x-2">
+              <div className="w-3 h-3 bg-emerald-600 rounded-full"></div>
+              <h1 className="font-extrabold text-slate-900 tracking-wider text-sm">PESASHIELD</h1>
+            </div>
+            <p className="text-[10px] text-gray-400 font-medium">Financial Protection & Strategy</p>
           </div>
-        ) : debts.length === 0 ? (
-          <div className="p-6 text-center text-xs text-gray-400 border border-dashed border-gray-200 rounded-2xl">
-            No active debts recorded. Click "+ Add Debt" to create one.
+          <div className="text-right">
+            <span className="text-[10px] text-gray-400 block uppercase font-semibold">User Profile</span>
+            <span className="text-xs font-bold text-slate-800 truncate max-w-[120px] block">{session.user.email.split('@')[0]}</span>
           </div>
-        ) : (
-          debts.map((debt) => (
-            <div key={debt.id} className="bg-white border border-gray-100 p-4 rounded-2xl shadow-sm space-y-3">
-              <div className="flex justify-between items-start">
+        </div>
+
+        {/* Tab Content Views */}
+        <div className="p-5 flex-1 overflow-y-auto">
+          
+          {/* SHIELD TAB */}
+          {activeTab === 'shield' && (
+            <div className="space-y-4">
+              <div className="flex space-x-2 border-b border-gray-100 pb-3">
+                <button className="px-4 py-1.5 bg-slate-100 text-slate-900 rounded-full text-xs font-bold">Overview</button>
+              </div>
+
+              <div className="bg-amber-50 border border-amber-200/60 rounded-2xl p-4">
+                <h3 className="text-xs font-bold text-amber-900 flex items-center space-x-1 mb-1">
+                  <span>⚠️</span> <span>Moderate Debt Burden</span>
+                </h3>
+                <p className="text-[11px] text-amber-800/80 leading-relaxed">
+                  Debt is consuming a significant portion of income. Limit discretionary spend and avoid new loans.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-slate-50 border border-slate-100 p-3.5 rounded-2xl">
+                  <span className="text-[10px] font-bold text-purple-600 uppercase tracking-wider block mb-1">Acceleration Surplus</span>
+                  <span className="text-sm font-extrabold text-slate-900">TSH {extraSurplus.toLocaleString()}</span>
+                  <span className="text-[9px] text-gray-400 block mt-0.5">Monthly debt payload</span>
+                </div>
+                <div className="bg-slate-50 border border-slate-100 p-3.5 rounded-2xl">
+                  <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider block mb-1">Safe Daily Spend</span>
+                  <span className="text-sm font-extrabold text-slate-900">TSH 1,500</span>
+                  <span className="text-[9px] text-gray-400 block mt-0.5">Discretionary safe cap</span>
+                </div>
+              </div>
+
+              <div className="bg-white border border-gray-100 shadow-sm rounded-2xl p-4">
+                <h4 className="text-xs font-bold text-slate-800 mb-3">Income & Allocation</h4>
+                <div className="flex flex-col items-center justify-center py-4 relative">
+                  <div className="w-36 h-36 rounded-full border-8 border-slate-100 flex flex-col items-center justify-center text-center">
+                    <span className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">NET INCOME</span>
+                    <span className="text-xs font-black text-slate-900">TSH {netIncome.toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* BUDGET & PROFILE TAB */}
+          {activeTab === 'profile' && (
+            <div className="space-y-4">
+              {/* Logout Action Card */}
+              <div className="bg-red-50 border border-red-100 p-4 rounded-2xl flex justify-between items-center">
                 <div>
-                  <h3 className="text-xs font-bold text-gray-900">{debt.name}</h3>
-                  <p className="text-[10px] text-gray-400">{debt.type}</p>
+                  <h4 className="text-xs font-bold text-red-900">Current Session</h4>
+                  <p className="text-[10px] text-red-600 truncate max-w-[180px]">{session.user.email}</p>
                 </div>
                 <button
-                  onClick={() => handleDeleteDebt(debt.id)}
-                  className="text-gray-400 hover:text-red-500 transition"
-                  title="Delete Debt"
+                  onClick={() => supabase.auth.signOut()}
+                  className="px-4 py-2 bg-red-600 text-white rounded-xl text-xs font-bold hover:bg-red-700 transition shadow-sm"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
+                  Log Out
                 </button>
               </div>
 
-              <div className="grid grid-cols-3 gap-2 text-left">
-                <div>
-                  <p className="text-[9px] text-gray-400">Balance</p>
-                  <p className="text-xs font-bold text-gray-900">TSh {Number(debt.balance).toLocaleString()}</p>
-                </div>
-                <div>
-                  <p className="text-[9px] text-gray-400">Min Payment</p>
-                  <p className="text-xs font-bold text-gray-900">TSh {Number(debt.min_payment).toLocaleString()}</p>
-                </div>
-                <div>
-                  <p className="text-[9px] text-gray-400">APR Rate</p>
-                  <p className="text-xs font-bold text-amber-600">{debt.apr}%</p>
-                </div>
+              <div className="grid grid-cols-2 gap-2 bg-slate-50 p-3 rounded-2xl border border-gray-100 text-xs">
+                <div><span className="w-2 h-2 rounded-full bg-cyan-400 inline-block mr-1"></span> Living Costs <br/><b>TSH {totalLivingCosts.toLocaleString()}</b></div>
+                <div><span className="w-2 h-2 rounded-full bg-rose-500 inline-block mr-1"></span> Min Debt Pay <br/><b>TSH {totalMinDebt}</b></div>
+                <div><span className="w-2 h-2 rounded-full bg-amber-400 inline-block mr-1"></span> Safety Buffer <br/><b>TSH {emergencyBuffer.toLocaleString()}</b></div>
+                <div><span className="w-2 h-2 rounded-full bg-emerald-500 inline-block mr-1"></span> Extra Surplus <br/><b>TSH {extraSurplus.toLocaleString()}</b></div>
               </div>
 
-              <button
-                onClick={() => {
-                  setActivePaymentDebt(debt);
-                  setPaymentAmount((debt.min_payment || 0).toString());
-                }}
-                className="w-full bg-slate-900 text-white text-xs font-medium py-2 rounded-xl flex justify-center items-center gap-1.5 shadow-sm hover:bg-slate-800 transition"
-              >
-                <DollarSign className="w-3.5 h-3.5 text-emerald-400" /> Log Payment
-              </button>
-            </div>
-          ))
-        )}
-      </div>
-
-      {/* Modal: Add New Debt */}
-      {isAddModalOpen && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex justify-center items-center p-4 z-50">
-          <div className="bg-white rounded-2xl p-5 w-full max-w-xs space-y-4 shadow-2xl border border-gray-100">
-            <div className="flex justify-between items-center border-b border-gray-100 pb-2">
-              <h3 className="text-xs font-bold text-gray-900">Add New Debt</h3>
-              <button onClick={() => setIsAddModalOpen(false)} className="text-gray-400 hover:text-gray-600">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleAddDebt} className="space-y-3">
-              <div>
-                <label className="text-[10px] text-gray-400 block mb-1">Debt Name</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Bank Loan"
-                  value={newDebtName}
-                  onChange={(e) => setNewDebtName(e.target.value)}
-                  className="w-full p-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-slate-900"
-                  required
-                />
+              <div className="bg-white border border-gray-100 rounded-2xl p-4 space-y-3">
+                <h4 className="text-xs font-bold text-slate-800">Adjust Essentials</h4>
+                <div>
+                  <label className="text-[10px] text-gray-500 uppercase font-semibold">Monthly Net Income (TSH)</label>
+                  <input type="number" value={netIncome} onChange={(e) => setNetIncome(Number(e.target.value))} className="w-full mt-1 px-3 py-2 border rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] text-gray-500 uppercase font-semibold">Housing</label>
+                    <input type="number" value={housing} onChange={(e) => setHousing(Number(e.target.value))} className="w-full mt-1 px-3 py-2 border rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-gray-500 uppercase font-semibold">Food / Grocery</label>
+                    <input type="number" value={food} onChange={(e) => setFood(Number(e.target.value))} className="w-full mt-1 px-3 py-2 border rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] text-gray-500 uppercase font-semibold">Utilities / Airtime</label>
+                    <input type="number" value={utilities} onChange={(e) => setUtilities(Number(e.target.value))} className="w-full mt-1 px-3 py-2 border rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-gray-500 uppercase font-semibold">Transport</label>
+                    <input type="number" value={transport} onChange={(e) => setTransport(Number(e.target.value))} className="w-full mt-1 px-3 py-2 border rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[10px] text-gray-500 uppercase font-semibold">Emergency Buffer (TSH)</label>
+                  <input type="number" value={emergencyBuffer} onChange={(e) => setEmergencyBuffer(Number(e.target.value))} className="w-full mt-1 px-3 py-2 border rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                </div>
               </div>
+            </div>
+          )}
 
-              <div>
-                <label className="text-[10px] text-gray-400 block mb-1">Provider / Category</label>
-                <input
-                  type="text"
-                  placeholder="e.g. CRDB / M-Pawa"
-                  value={newDebtType}
-                  onChange={(e) => setNewDebtType(e.target.value)}
-                  className="w-full p-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-slate-900"
-                />
+          {/* DEBTS TAB */}
+          {activeTab === 'debts' && (
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <div>
+                  <h3 className="text-xs font-bold text-slate-900 uppercase">Your Debts</h3>
+                  <p className="text-[10px] text-gray-400">Track balance, APRs, and min payments</p>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-[10px] text-gray-400 block mb-1">Balance (TSh)</label>
-                  <input
-                    type="number"
-                    placeholder="1000000"
-                    value={newBalance}
-                    onChange={(e) => setNewBalance(e.target.value)}
-                    className="w-full p-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-slate-900"
-                    required
-                  />
+                <div className="bg-slate-900 text-white p-3.5 rounded-2xl">
+                  <span className="text-[9px] text-slate-400 uppercase font-bold block">Total Outstanding</span>
+                  <span className="text-xs font-extrabold">TSH {totalOutstanding.toLocaleString()}</span>
                 </div>
-                <div>
-                  <label className="text-[10px] text-gray-400 block mb-1">Min Pay (TSh)</label>
-                  <input
-                    type="number"
-                    placeholder="50000"
-                    value={newMinPayment}
-                    onChange={(e) => setNewMinPayment(e.target.value)}
-                    className="w-full p-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-slate-900"
-                  />
+                <div className="bg-slate-50 border border-slate-100 p-3.5 rounded-2xl">
+                  <span className="text-[9px] text-gray-400 uppercase font-bold block">Min Monthly Obligations</span>
+                  <span className="text-xs font-extrabold text-slate-900">TSH {totalMinDebt}</span>
                 </div>
               </div>
 
-              <div>
-                <label className="text-[10px] text-gray-400 block mb-1">APR Rate (%)</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  placeholder="18.5"
-                  value={newApr}
-                  onChange={(e) => setNewApr(e.target.value)}
-                  className="w-full p-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-slate-900"
-                />
-              </div>
+              {/* Add Debt Form */}
+              <form onSubmit={handleAddDebt} className="bg-slate-50 border border-slate-100 p-3 rounded-2xl space-y-2">
+                <span className="text-[10px] font-bold text-slate-700 uppercase">Add New Debt</span>
+                <input type="text" placeholder="Debt Name" value={newDebtName} onChange={(e) => setNewDebtName(e.target.value)} className="w-full px-3 py-1.5 border rounded-lg text-xs" required />
+                <div className="grid grid-cols-3 gap-1">
+                  <input type="number" placeholder="Balance" value={newDebtBalance} onChange={(e) => setNewDebtBalance(e.target.value)} className="px-2 py-1.5 border rounded-lg text-xs" required />
+                  <input type="number" placeholder="Min Pay" value={newDebtMin} onChange={(e) => setNewDebtMin(e.target.value)} className="px-2 py-1.5 border rounded-lg text-xs" />
+                  <input type="number" placeholder="APR %" value={newDebtApr} onChange={(e) => setNewDebtApr(e.target.value)} className="px-2 py-1.5 border rounded-lg text-xs" />
+                </div>
+                <button type="submit" className="w-full py-2 bg-slate-900 text-white rounded-lg text-xs font-bold">Add Debt</button>
+              </form>
 
-              <button
-                type="submit"
-                className="w-full bg-slate-900 text-white text-xs font-medium py-2.5 rounded-xl shadow-sm hover:bg-slate-800 transition mt-2"
-              >
-                Save Debt
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Modal: Log Payment */}
-      {activePaymentDebt && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex justify-center items-center p-4 z-50">
-          <div className="bg-white rounded-2xl p-5 w-full max-w-xs space-y-4 shadow-2xl border border-gray-100">
-            <div className="flex justify-between items-center border-b border-gray-100 pb-2">
-              <div>
-                <h3 className="text-xs font-bold text-gray-900">Log Payment</h3>
-                <p className="text-[10px] text-gray-400">{activePaymentDebt.name}</p>
+              {/* Debt List */}
+              <div className="space-y-2">
+                {debts.map(debt => (
+                  <div key={debt.id} className="bg-white border border-gray-100 shadow-sm rounded-2xl p-3 flex justify-between items-center">
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-800">{debt.name}</h4>
+                      <div className="flex space-x-3 mt-1 text-[10px] text-gray-500">
+                        <span>Balance: <b>TSH {debt.balance.toLocaleString()}</b></span>
+                        <span>Min: <b>TSH {debt.minPayment}</b></span>
+                      </div>
+                    </div>
+                    <button onClick={() => handleDeleteDebt(debt.id)} className="text-gray-400 hover:text-red-500 text-xs">🗑️</button>
+                  </div>
+                ))}
               </div>
-              <button onClick={() => setActivePaymentDebt(null)} className="text-gray-400 hover:text-gray-600">
-                <X className="w-4 h-4" />
-              </button>
             </div>
-
-            <form onSubmit={handleLogPayment} className="space-y-3">
-              <div className="bg-gray-50 p-2.5 rounded-xl text-xs space-y-1">
-                <div className="flex justify-between text-gray-500">
-                  <span>Current Balance:</span>
-                  <span className="font-bold text-gray-900">TSh {Number(activePaymentDebt.balance).toLocaleString()}</span>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-[10px] text-gray-400 block mb-1">Payment Amount (TSh)</label>
-                <input
-                  type="number"
-                  value={paymentAmount}
-                  onChange={(e) => setPaymentAmount(e.target.value)}
-                  className="w-full p-2.5 text-xs font-bold border border-gray-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                  required
-                />
-              </div>
-
-              <button
-                type="submit"
-                className="w-full bg-emerald-600 text-white text-xs font-medium py-2.5 rounded-xl shadow-sm hover:bg-emerald-700 transition"
-              >
-                Confirm Payment
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// 3. Dynamic Strategy View
-function StrategyView({ debts }) {
-  const [extraPayload, setExtraPayload] = useState(45000);
-  const [selectedStrategy, setSelectedStrategy] = useState("avalanche");
-
-  const avalancheResults = calculatePayoffStrategy(debts, extraPayload, "avalanche");
-  const snowballResults = calculatePayoffStrategy(debts, extraPayload, "snowball");
-
-  const activeResults = selectedStrategy === "avalanche" ? avalancheResults : snowballResults;
-  const savings = Math.max(0, snowballResults.totalInterest - avalancheResults.totalInterest);
-
-  return (
-    <div className="space-y-4 pb-20">
-      <Header />
-
-      <div>
-        <h2 className="text-base font-bold text-gray-900">Payoff Strategy Engine</h2>
-        <p className="text-[10px] text-gray-400">Compare Avalanche (Interest-focused) vs Snowball (Psychological Wins)</p>
-      </div>
-
-      <div className="bg-white border border-gray-100 p-4 rounded-2xl shadow-sm space-y-2">
-        <div className="flex justify-between items-center text-[10px]">
-          <span className="text-gray-500 font-medium">Extra Monthly Payload (TSh)</span>
-          <span className="text-emerald-600 font-medium bg-emerald-50 px-2 py-0.5 rounded-full">Shield Surplus: TSh 45,000</span>
-        </div>
-        <input 
-          type="number" 
-          value={extraPayload}
-          onChange={(e) => setExtraPayload(Math.max(0, parseFloat(e.target.value) || 0))}
-          className="w-full p-2.5 text-xs font-bold border border-gray-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500" 
-        />
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        {/* Avalanche Card */}
-        <div 
-          onClick={() => setSelectedStrategy("avalanche")}
-          className={`cursor-pointer p-3.5 rounded-2xl border transition ${
-            selectedStrategy === "avalanche" 
-              ? "bg-amber-50/80 border-amber-400 ring-2 ring-amber-400/20 shadow-sm" 
-              : "bg-amber-50/30 border-amber-200/50 hover:border-amber-300"
-          }`}
-        >
-          <div className="flex items-center gap-1 text-amber-700 font-bold text-xs">
-            <TrendingUp className="w-3.5 h-3.5" />
-            <span>Avalanche</span>
-          </div>
-          <p className="text-[9px] text-gray-400">Highest APR First</p>
-          
-          <div className="mt-2">
-            <p className="text-[9px] text-gray-400">Time to Free</p>
-            <p className="text-xs font-bold text-gray-900">{avalancheResults.months} mos</p>
-          </div>
-          <div className="mt-1">
-            <p className="text-[9px] text-gray-400">Total Interest</p>
-            <p className="text-xs font-bold text-amber-600">TSh {avalancheResults.totalInterest.toLocaleString()}</p>
-          </div>
-        </div>
-
-        {/* Snowball Card */}
-        <div 
-          onClick={() => setSelectedStrategy("snowball")}
-          className={`cursor-pointer p-3.5 rounded-2xl border transition ${
-            selectedStrategy === "snowball" 
-              ? "bg-sky-50/80 border-sky-400 ring-2 ring-sky-400/20 shadow-sm" 
-              : "bg-sky-50/30 border-sky-100 hover:border-sky-200"
-          }`}
-        >
-          <div className="flex items-center gap-1 text-sky-700 font-bold text-xs">
-            <Shield className="w-3.5 h-3.5" />
-            <span>Snowball</span>
-          </div>
-          <p className="text-[9px] text-gray-400">Smallest Balance First</p>
-          
-          <div className="mt-2">
-            <p className="text-[9px] text-gray-400">Time to Free</p>
-            <p className="text-xs font-bold text-gray-900">{snowballResults.months} mos</p>
-          </div>
-          <div className="mt-1">
-            <p className="text-[9px] text-gray-400">Total Interest</p>
-            <p className="text-xs font-bold text-sky-600">TSh {snowballResults.totalInterest.toLocaleString()}</p>
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-sky-50/80 border border-sky-100 p-3 rounded-2xl flex items-center gap-2 text-sky-800 text-xs">
-        <Info className="w-4 h-4 text-sky-600 flex-shrink-0" />
-        <span>
-          {savings > 0 
-            ? `Avalanche saves you TSh ${savings.toLocaleString()} in total interest compared to Snowball.`
-            : "Both strategies perform equally for your current balances."}
-        </span>
-      </div>
-
-      <div className="bg-white border border-gray-100 p-4 rounded-2xl shadow-sm space-y-3">
-        <div className="flex justify-between items-center">
-          <h3 className="text-[10px] font-bold text-gray-400 tracking-wider uppercase">MONTH 1 TARGET PAYMENTS</h3>
-          <span className="text-[10px] font-bold text-gray-500 capitalize">{selectedStrategy} Mode</span>
-        </div>
-        
-        <div className="space-y-2.5 text-xs">
-          {debts.map((debt) => {
-            const minPay = Number(debt.min_payment) || 0;
-            const totalTarget = activeResults.month1Payments[debt.id] || minPay;
-            const extraPart = totalTarget - minPay;
-
-            return (
-              <div key={debt.id} className="flex justify-between items-center border-b border-gray-50 pb-2 last:border-0 last:pb-0">
-                <div>
-                  <p className="font-bold text-gray-900">{debt.name}</p>
-                  <p className="text-[9px] text-gray-400">Min: TSh {minPay.toLocaleString()}</p>
-                </div>
-                <div className="text-right">
-                  <p className="font-bold text-emerald-600">TSh {Math.round(totalTarget).toLocaleString()}</p>
-                  {extraPart > 0 && (
-                    <p className="text-[9px] text-emerald-600 font-medium">+TSh {Math.round(extraPart).toLocaleString()} extra</p>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-
-          {debts.length === 0 && (
-            <p className="text-xs text-gray-400 text-center py-2">Add debts in the Debts tab to calculate payments.</p>
           )}
+
+          {/* PAYOFF STRATEGY TAB */}
+          {activeTab === 'payoff' && (
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-xs font-bold text-slate-900 uppercase">Payoff Strategy Engine</h3>
+                <p className="text-[10px] text-gray-400">Compare Avalanche vs Snowball payoff paths</p>
+              </div>
+
+              <div className="bg-emerald-50 border border-emerald-100 p-3.5 rounded-2xl flex justify-between items-center">
+                <span className="text-[10px] font-bold text-emerald-800 uppercase">Extra Monthly Payload (TSH)</span>
+                <span className="text-xs font-black text-emerald-900">TSH {extraSurplus.toLocaleString()}</span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div className="bg-amber-50/60 border border-amber-200/50 p-3 rounded-2xl">
+                  <span className="text-[10px] font-bold text-amber-900 block mb-1">🔥 Avalanche</span>
+                  <span className="text-xs font-bold text-slate-800">3 mos to free</span>
+                </div>
+                <div className="bg-slate-50 border border-slate-100 p-3 rounded-2xl">
+                  <span className="text-[10px] font-bold text-slate-700 block mb-1">❄️ Snowball</span>
+                  <span className="text-xs font-bold text-slate-800">3 mos to free</span>
+                </div>
+              </div>
+
+              <div className="bg-blue-50/60 border border-blue-100 p-3 rounded-xl text-[11px] text-blue-900">
+                Both strategies perform effectively for your current balances.
+              </div>
+            </div>
+          )}
+
         </div>
+
+        {/* Bottom Navigation Bar */}
+        <div className="absolute bottom-0 left-0 right-0 bg-white border-t border-gray-100 py-3 px-6 flex justify-between items-center text-xs">
+          <button onClick={() => setActiveTab('shield')} className={`flex flex-col items-center font-bold ${activeTab === 'shield' ? 'text-emerald-600' : 'text-gray-400'}`}>
+            <span>🛡️</span>
+            <span className="text-[9px] mt-0.5">Shield</span>
+          </button>
+          <button onClick={() => setActiveTab('debts')} className={`flex flex-col items-center font-bold ${activeTab === 'debts' ? 'text-emerald-600' : 'text-gray-400'}`}>
+            <span>💲</span>
+            <span className="text-[9px] mt-0.5">Debts</span>
+          </button>
+          <button onClick={() => setActiveTab('payoff')} className={`flex flex-col items-center font-bold ${activeTab === 'payoff' ? 'text-emerald-600' : 'text-gray-400'}`}>
+            <span>📈</span>
+            <span className="text-[9px] mt-0.5">Payoff</span>
+          </button>
+          <button onClick={() => setActiveTab('profile')} className={`flex flex-col items-center font-bold ${activeTab === 'profile' ? 'text-emerald-600' : 'text-gray-400'}`}>
+            <span>👤</span>
+            <span className="text-[9px] mt-0.5">Profile</span>
+          </button>
+        </div>
+
       </div>
     </div>
-  );
-}
-
-// 4. Profile View
-function ProfileView() {
-  return (
-    <div className="space-y-4 pb-20">
-      <Header />
-
-      <div className="grid grid-cols-2 gap-2 text-[11px] font-semibold bg-white p-3 rounded-2xl border border-gray-100 shadow-sm">
-        <div className="flex items-center gap-1.5">
-          <span className="w-2.5 h-2.5 rounded-full bg-sky-400"></span>
-          <div>
-            <p className="text-gray-400 text-[9px]">Living Costs</p>
-            <p className="text-gray-900">TSh 780,000</p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-1.5">
-          <span className="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
-          <div>
-            <p className="text-gray-400 text-[9px]">Min Debt Pay</p>
-            <p className="text-gray-900">TSh 275,000</p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-1.5">
-          <span className="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
-          <div>
-            <p className="text-gray-400 text-[9px]">Safety Buffer</p>
-            <p className="text-gray-900">TSh 100,000</p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-1.5">
-          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-          <div>
-            <p className="text-gray-400 text-[9px]">Extra Surplus</p>
-            <p className="text-gray-900">TSh 45,000</p>
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-white border border-gray-100 p-4 rounded-2xl shadow-sm space-y-3">
-        <h3 className="text-xs font-bold text-gray-800">Adjust Essentials</h3>
-
-        <div>
-          <label className="text-[10px] font-medium text-gray-400 block mb-1">Monthly Net Income (TSh)</label>
-          <input 
-            type="text" 
-            defaultValue="1200000" 
-            className="w-full p-2.5 text-xs font-medium border border-gray-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500" 
-          />
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-[10px] font-medium text-gray-400 block mb-1">Housing</label>
-            <input 
-              type="text" 
-              defaultValue="350000" 
-              className="w-full p-2.5 text-xs font-medium border border-gray-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500" 
-            />
-          </div>
-
-          <div>
-            <label className="text-[10px] font-medium text-gray-400 block mb-1">Food / Grocery</label>
-            <input 
-              type="text" 
-              defaultValue="250000" 
-              className="w-full p-2.5 text-xs font-medium border border-gray-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500" 
-            />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-[10px] font-medium text-gray-400 block mb-1">Utilities / Airtime</label>
-            <input 
-              type="text" 
-              defaultValue="80000" 
-              className="w-full p-2.5 text-xs font-medium border border-gray-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500" 
-            />
-          </div>
-
-          <div>
-            <label className="text-[10px] font-medium text-gray-400 block mb-1">Transport</label>
-            <input 
-              type="text" 
-              defaultValue="100000" 
-              className="w-full p-2.5 text-xs font-medium border border-gray-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500" 
-            />
-          </div>
-        </div>
-
-        <div>
-          <label className="text-[10px] font-medium text-gray-400 block mb-1">Emergency Buffer (TSh)</label>
-          <input 
-            type="text" 
-            defaultValue="100000" 
-            className="w-full p-2.5 text-xs font-medium border border-gray-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500" 
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// Main App Shell
-export default function App() {
-  const [debts, setDebts] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  // Fetch debts from Supabase database
-  useEffect(() => {
-    fetchDebts();
-  }, []);
-
-  async function fetchDebts() {
-    try {
-      setLoading(true);
-      const { data, error } = await supabase
-        .from("debts")
-        .select("*")
-        .order("id", { ascending: true });
-
-      if (error) console.error("Error fetching debts:", error.message);
-      else setDebts(data || []);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <Router>
-      <div className="min-h-screen bg-gray-50 flex justify-center items-start pt-4 pb-12 font-sans">
-        <div className="w-full max-w-md bg-white border border-gray-200 min-h-[90vh] rounded-3xl p-4 shadow-xl relative overflow-hidden">
-          <Routes>
-            <Route path="/" element={<ShieldView />} />
-            <Route path="/debts" element={<DebtsView debts={debts} setDebts={setDebts} loading={loading} />} />
-            <Route path="/strategy" element={<StrategyView debts={debts} />} />
-            <Route path="/profile" element={<ProfileView />} />
-          </Routes>
-          <BottomNav />
-        </div>
-      </div>
-    </Router>
   );
 }
