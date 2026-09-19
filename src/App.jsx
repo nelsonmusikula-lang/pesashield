@@ -13,49 +13,25 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('shield');
 
   // Income Sources State
-  const [incomeSources, setIncomeSources] = useState([
-    { id: 1, name: 'Primary Salary', amount: 10000000 },
-    { id: 2, name: 'Side Business', amount: 2000000 }
-  ]);
+  const [incomeSources, setIncomeSources] = useState([]);
   const [newIncomeName, setNewIncomeName] = useState('');
   const [newIncomeAmount, setNewIncomeAmount] = useState('');
 
   // Budget & Profile State
-  const [housing, setHousing] = useState(1000000);
-  const [food, setFood] = useState(250000);
-  const [utilities, setUtilities] = useState(200000);
-  const [transport, setTransport] = useState(400000);
-  const [emergencyBuffer, setEmergencyBuffer] = useState(100000);
+  const [profileId, setProfileId] = useState(null);
+  const [housing, setHousing] = useState(0);
+  const [food, setFood] = useState(0);
+  const [utilities, setUtilities] = useState(0);
+  const [transport, setTransport] = useState(0);
+  const [emergencyBuffer, setEmergencyBuffer] = useState(0);
 
   // Dynamic Custom Essentials
   const [customEssentials, setCustomEssentials] = useState([]);
   const [newEssentialName, setNewEssentialName] = useState('');
   const [newEssentialAmount, setNewEssentialAmount] = useState('');
 
-  // Debts State (with Due Days and Payment Logs)
-  const [debts, setDebts] = useState([
-    { 
-      id: 1, 
-      name: 'K-Finance', 
-      balance: 10000000, 
-      minPayment: 1300000, 
-      apr: 18, 
-      durationMonths: 12,
-      dueDay: 28,
-      payments: [] 
-    },
-    { 
-      id: 2, 
-      name: 'Helen', 
-      balance: 4000000, 
-      minPayment: 500000, 
-      apr: 10, 
-      durationMonths: 10,
-      dueDay: 15,
-      payments: [] 
-    }
-  ]);
-  
+  // Debts State
+  const [debts, setDebts] = useState([]);
   const [newDebtName, setNewDebtName] = useState('');
   const [newDebtBalance, setNewDebtBalance] = useState('');
   const [newDebtMin, setNewDebtMin] = useState('');
@@ -76,16 +52,70 @@ export default function App() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
+      if (session) fetchUserData(session.user.id);
       setLoading(false);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
+      if (session) fetchUserData(session.user.id);
       setLoading(false);
     });
 
     return () => subscription.unsubscribe();
   }, []);
+
+  const fetchUserData = async (userId) => {
+    try {
+      // 1. Fetch Profile / Budget Costs
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (profileData) {
+        setProfileId(profileData.id);
+        setHousing(profileData.housing || 0);
+        setFood(profileData.food || 0);
+        setUtilities(profileData.utilities || 0);
+        setTransport(profileData.transport || 0);
+        setEmergencyBuffer(profileData.emergency_buffer || 0);
+      } else {
+        // Create initial clean profile row at zero
+        const { data: newProfile } = await supabase
+          .from('profiles')
+          .insert([{ user_id: userId, housing: 0, food: 0, utilities: 0, transport: 0, emergency_buffer: 0 }])
+          .select()
+          .single();
+        if (newProfile) setProfileId(newProfile.id);
+      }
+
+      // 2. Fetch Income Sources (Starts empty if none added yet)
+      const { data: incomeData } = await supabase
+        .from('income_sources')
+        .select('*')
+        .eq('user_id', userId);
+      if (incomeData) setIncomeSources(incomeData);
+
+      // 3. Fetch Custom Essentials
+      const { data: essentialData } = await supabase
+        .from('custom_essentials')
+        .select('*')
+        .eq('user_id', userId);
+      if (essentialData) setCustomEssentials(essentialData);
+
+      // 4. Fetch Debts (Starts empty if none added yet)
+      const { data: debtData } = await supabase
+        .from('debts')
+        .select('*')
+        .eq('user_id', userId);
+      if (debtData) setDebts(debtData);
+
+    } catch (err) {
+      console.error('Error fetching user data:', err);
+    }
+  };
 
   if (loading) {
     return (
@@ -96,7 +126,7 @@ export default function App() {
   }
 
   if (!session) {
-    return <Auth onLogin={(user) => setSession({ user })} />;
+    return <Auth onLogin={(user) => { setSession({ user }); fetchUserData(user.id); }} />;
   }
 
   // Calculations
@@ -105,11 +135,10 @@ export default function App() {
   const customEssentialsTotal = customEssentials.reduce((sum, item) => sum + Number(item.amount), 0);
   const totalLivingCosts = baseLivingCosts + customEssentialsTotal;
   
-  const totalMinDebt = debts.reduce((sum, d) => sum + Number(d.minPayment), 0);
+  const totalMinDebt = debts.reduce((sum, d) => sum + Number(d.min_payment || d.minPayment), 0);
   const totalOutstanding = debts.reduce((sum, d) => sum + Number(d.balance), 0);
   const disposableIncome = totalNetIncome - (totalLivingCosts + totalMinDebt + emergencyBuffer);
 
-  // Check pending payments for the current selected month
   const pendingDebtsCount = debts.filter(debt => {
     const paidThisMonth = debt.payments?.some(p => p.month === selectedMonth);
     return !paidThisMonth && debt.balance > 0;
@@ -132,87 +161,123 @@ export default function App() {
     }
   };
 
-  const handleAddIncomeSource = (e) => {
+  const handleAddIncomeSource = async (e) => {
     e.preventDefault();
     if (!newIncomeName || !newIncomeAmount) return;
-    setIncomeSources([...incomeSources, { id: Date.now(), name: newIncomeName, amount: Number(newIncomeAmount) }]);
-    setNewIncomeName('');
-    setNewIncomeAmount('');
+    const newSource = { name: newIncomeName, amount: Number(newIncomeAmount), user_id: session.user.id };
+    
+    const { data, error } = await supabase.from('income_sources').insert([newSource]).select().single();
+    if (!error && data) {
+      setIncomeSources([...incomeSources, data]);
+      setNewIncomeName('');
+      setNewIncomeAmount('');
+    }
   };
 
-  const handleDeleteIncomeSource = (id) => {
-    setIncomeSources(incomeSources.filter(item => item.id !== id));
+  const handleDeleteIncomeSource = async (id) => {
+    const { error } = await supabase.from('income_sources').delete().eq('id', id);
+    if (!error) {
+      setIncomeSources(incomeSources.filter(item => item.id !== id));
+    }
   };
 
-  const handleAddDebt = (e) => {
+  const handleAddDebt = async (e) => {
     e.preventDefault();
     if (!newDebtName || !newDebtBalance) return;
     const debtObj = {
-      id: Date.now(),
       name: newDebtName,
       balance: Number(newDebtBalance),
-      minPayment: Number(newDebtMin || 0),
+      min_payment: Number(newDebtMin || 0),
       apr: Number(newDebtApr || 0),
-      durationMonths: Number(newDebtDuration || 12),
-      dueDay: Number(newDebtDueDay || 28),
+      duration_months: Number(newDebtDuration || 12),
+      due_day: Number(newDebtDueDay || 28),
       payments: [],
       user_id: session.user.id
     };
-    setDebts([...debts, debtObj]);
-    setNewDebtName('');
-    setNewDebtBalance('');
-    setNewDebtMin('');
-    setNewDebtApr('');
-    setNewDebtDuration('');
-    setNewDebtDueDay('');
+
+    const { data, error } = await supabase.from('debts').insert([debtObj]).select().single();
+    if (!error && data) {
+      setDebts([...debts, data]);
+      setNewDebtName('');
+      setNewDebtBalance('');
+      setNewDebtMin('');
+      setNewDebtApr('');
+      setNewDebtDuration('');
+      setNewDebtDueDay('');
+    }
   };
 
-  const handleDeleteDebt = (id) => {
-    setDebts(debts.filter(d => d.id !== id));
+  const handleDeleteDebt = async (id) => {
+    const { error } = await supabase.from('debts').delete().eq('id', id);
+    if (!error) {
+      setDebts(debts.filter(d => d.id !== id));
+    }
   };
 
-  const handleLogPayment = (debtId) => {
+  const handleLogPayment = async (debtId) => {
     const amountPaid = Number(paymentInput[debtId]);
     if (!amountPaid || amountPaid <= 0) return;
 
-    setDebts(debts.map(debt => {
-      if (debt.id === debtId) {
-        const newBalance = Math.max(0, debt.balance - amountPaid);
-        const newPaymentRecord = {
-          id: Date.now(),
-          month: selectedMonth,
-          amount: amountPaid
-        };
-        
-        // Trigger browser notification if enabled
-        if (notificationsEnabled && "Notification" in window) {
-          new Notification(`Payment Logged: ${debt.name}`, {
-            body: `Successfully recorded TSH ${amountPaid.toLocaleString()} for ${selectedMonth}. Remaining balance: TSH ${newBalance.toLocaleString()}`
-          });
+    const targetDebt = debts.find(d => d.id === debtId);
+    if (!targetDebt) return;
+
+    const newBalance = Math.max(0, targetDebt.balance - amountPaid);
+    const newPaymentRecord = {
+      id: Date.now(),
+      month: selectedMonth,
+      amount: amountPaid
+    };
+    const updatedPayments = [newPaymentRecord, ...(targetDebt.payments || [])];
+
+    const { error } = await supabase
+      .from('debts')
+      .update({ balance: newBalance, payments: updatedPayments })
+      .eq('id', debtId);
+
+    if (!error) {
+      setDebts(debts.map(debt => {
+        if (debt.id === debtId) {
+          if (notificationsEnabled && "Notification" in window) {
+            new Notification(`Payment Logged: ${debt.name}`, {
+              body: `Successfully recorded TSH ${amountPaid.toLocaleString()} for ${selectedMonth}. Remaining balance: TSH ${newBalance.toLocaleString()}`
+            });
+          }
+          return { ...debt, balance: newBalance, payments: updatedPayments };
         }
-
-        return {
-          ...debt,
-          balance: newBalance,
-          payments: [newPaymentRecord, ...(debt.payments || [])]
-        };
-      }
-      return debt;
-    }));
-
-    setPaymentInput({ ...paymentInput, [debtId]: '' });
+        return debt;
+      }));
+      setPaymentInput({ ...paymentInput, [debtId]: '' });
+    }
   };
 
-  const handleAddEssential = (e) => {
+  const handleAddEssential = async (e) => {
     e.preventDefault();
     if (!newEssentialName || !newEssentialAmount) return;
-    setCustomEssentials([...customEssentials, { id: Date.now(), name: newEssentialName, amount: Number(newEssentialAmount) }]);
-    setNewEssentialName('');
-    setNewEssentialAmount('');
+    const newEss = { name: newEssentialName, amount: Number(newEssentialAmount), user_id: session.user.id };
+
+    const { data, error } = await supabase.from('custom_essentials').insert([newEss]).select().single();
+    if (!error && data) {
+      setCustomEssentials([...customEssentials, data]);
+      setNewEssentialName('');
+      setNewEssentialAmount('');
+    }
   };
 
-  const handleDeleteEssential = (id) => {
-    setCustomEssentials(customEssentials.filter(item => item.id !== id));
+  const handleDeleteEssential = async (id) => {
+    const { error } = await supabase.from('custom_essentials').delete().eq('id', id);
+    if (!error) {
+      setCustomEssentials(customEssentials.filter(item => item.id !== id));
+    }
+  };
+
+  const updateProfileField = async (field, value) => {
+    const updates = { [field]: value, user_id: session.user.id };
+    if (profileId) {
+      await supabase.from('profiles').update(updates).eq('id', profileId);
+    } else {
+      const { data } = await supabase.from('profiles').insert([updates]).select().single();
+      if (data) setProfileId(data.id);
+    }
   };
 
   const sortedDebts = [...debts].sort((a, b) => {
@@ -251,7 +316,6 @@ export default function App() {
           {activeTab === 'shield' && (
             <div className="space-y-4">
               
-              {/* Notification Banner Alert */}
               <div className={`border rounded-2xl p-4 transition ${pendingDebtsCount > 0 ? 'bg-amber-50 border-amber-200' : 'bg-emerald-50 border-emerald-200'}`}>
                 <div className="flex justify-between items-center mb-1">
                   <h3 className={`text-xs font-bold flex items-center space-x-1 ${pendingDebtsCount > 0 ? 'text-amber-900' : 'text-emerald-900'}`}>
@@ -270,11 +334,10 @@ export default function App() {
                 <p className={`text-[11px] ${pendingDebtsCount > 0 ? 'text-amber-800/80' : 'text-emerald-800/80'}`}>
                   {pendingDebtsCount > 0 
                     ? 'Check your Debts tab to log payments and keep your payment streaks active.' 
-                    : 'Fantastic job! Your active debt reminders and milestones are fully up to date.'}
+                    : debts.length === 0 ? 'Add your income and debts in the Profile & Debts tabs to begin!' : 'Fantastic job! Your active debt reminders and milestones are fully up to date.'}
                 </p>
               </div>
 
-              {/* Reduced Income Dashboard Card */}
               <div className="bg-slate-900 text-white rounded-2xl p-4 space-y-3 shadow-md">
                 <div className="flex justify-between items-center">
                   <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Gross Income</span>
@@ -325,7 +388,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Month Selector */}
               <div className="bg-indigo-50 border border-indigo-100 p-3 rounded-2xl flex items-center justify-between">
                 <span className="text-[10px] font-bold text-indigo-900 uppercase">Target Payment Month:</span>
                 <select 
@@ -360,7 +422,6 @@ export default function App() {
                 </select>
               </div>
 
-              {/* Add Debt Form */}
               <form onSubmit={handleAddDebt} className="bg-slate-50 border border-slate-100 p-3 rounded-2xl space-y-2">
                 <span className="text-[10px] font-bold text-slate-700 uppercase">Add New Debt & Due Day</span>
                 <input type="text" placeholder="Lender / Debt Name" value={newDebtName} onChange={(e) => setNewDebtName(e.target.value)} className="w-full px-3 py-1.5 border rounded-lg text-xs" required />
@@ -376,67 +437,69 @@ export default function App() {
                 <button type="submit" className="w-full py-2 bg-slate-900 text-white rounded-lg text-xs font-bold">Add Debt</button>
               </form>
 
-              {/* Debts List with Reminders */}
               <div className="space-y-3">
-                {debts.map(debt => {
-                  const duration = debt.durationMonths || 12;
-                  const dueDay = debt.dueDay || 28;
-                  const isPaidThisMonth = debt.payments?.some(p => p.month === selectedMonth);
+                {debts.length === 0 ? (
+                  <p className="text-center text-xs text-gray-400 py-4">No debts added yet. Add your first debt above!</p>
+                ) : (
+                  debts.map(debt => {
+                    const duration = debt.duration_months || debt.durationMonths || 12;
+                    const dueDay = debt.due_day || debt.dueDay || 28;
+                    const minPaymentVal = debt.min_payment || debt.minPayment || 0;
+                    const isPaidThisMonth = debt.payments?.some(p => p.month === selectedMonth);
 
-                  return (
-                    <div key={debt.id} className="bg-white border border-gray-100 shadow-sm rounded-2xl p-3 space-y-3">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <div className="flex items-center space-x-2">
-                            <h4 className="text-xs font-bold text-slate-800">{debt.name}</h4>
-                            <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold ${isPaidThisMonth ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
-                              {isPaidThisMonth ? '✓ Paid this month' : `Due on day ${dueDay}`}
-                            </span>
+                    return (
+                      <div key={debt.id} className="bg-white border border-gray-100 shadow-sm rounded-2xl p-3 space-y-3">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <div className="flex items-center space-x-2">
+                              <h4 className="text-xs font-bold text-slate-800">{debt.name}</h4>
+                              <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold ${isPaidThisMonth ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                                {isPaidThisMonth ? '✓ Paid this month' : `Due on day ${dueDay}`}
+                              </span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-x-4 mt-1 text-[10px] text-gray-500">
+                              <span>Balance: <b className="text-slate-900">TSH {debt.balance.toLocaleString()}</b></span>
+                              <span>Min Pay: <b>TSH {minPaymentVal.toLocaleString()}</b></span>
+                              <span className="text-emerald-700">Duration: <b>{duration} mos</b></span>
+                              <span className="text-indigo-600">Reminder: <b>Monthly on {dueDay}th</b></span>
+                            </div>
                           </div>
-                          <div className="grid grid-cols-2 gap-x-4 mt-1 text-[10px] text-gray-500">
-                            <span>Balance: <b className="text-slate-900">TSH {debt.balance.toLocaleString()}</b></span>
-                            <span>Min Pay: <b>TSH {debt.minPayment.toLocaleString()}</b></span>
-                            <span className="text-emerald-700">Duration: <b>{duration} mos</b></span>
-                            <span className="text-indigo-600">Reminder: <b>Monthly on {dueDay}th</b></span>
-                          </div>
+                          <button onClick={() => handleDeleteDebt(debt.id)} className="text-gray-400 hover:text-red-500 text-xs">🗑️</button>
                         </div>
-                        <button onClick={() => handleDeleteDebt(debt.id)} className="text-gray-400 hover:text-red-500 text-xs">🗑️</button>
-                      </div>
 
-                      {/* Log Payment */}
-                      <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 flex items-center space-x-2">
-                        <input 
-                          type="number" 
-                          placeholder={`Pay amount for ${selectedMonth}`} 
-                          value={paymentInput[debt.id] || ''} 
-                          onChange={(e) => setPaymentInput({ ...paymentInput, [debt.id]: e.target.value })} 
-                          className="flex-1 px-2.5 py-1.5 bg-white border rounded-lg text-xs"
-                        />
-                        <button 
-                          onClick={() => handleLogPayment(debt.id)} 
-                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-sm"
-                        >
-                          Log
-                        </button>
-                      </div>
-
-                      {/* History Log */}
-                      {debt.payments && debt.payments.length > 0 && (
-                        <div className="border-t border-gray-100 pt-2 space-y-1">
-                          <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 block">Payment Records</span>
-                          <div className="max-h-24 overflow-y-auto space-y-1">
-                            {debt.payments.map(p => (
-                              <div key={p.id} className="flex justify-between items-center text-[10px] bg-emerald-50/50 px-2.5 py-1 rounded-lg text-slate-700">
-                                <span className="font-semibold text-emerald-900">📅 {p.month}</span>
-                                <span className="font-bold text-emerald-800">- TSH {p.amount.toLocaleString()}</span>
-                              </div>
-                            ))}
-                          </div>
+                        <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 flex items-center space-x-2">
+                          <input 
+                            type="number" 
+                            placeholder={`Pay amount for ${selectedMonth}`} 
+                            value={paymentInput[debt.id] || ''} 
+                            onChange={(e) => setPaymentInput({ ...paymentInput, [debt.id]: e.target.value })} 
+                            className="flex-1 px-2.5 py-1.5 bg-white border rounded-lg text-xs"
+                          />
+                          <button 
+                            onClick={() => handleLogPayment(debt.id)} 
+                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-sm"
+                          >
+                            Log
+                          </button>
                         </div>
-                      )}
-                    </div>
-                  );
-                })}
+
+                        {debt.payments && debt.payments.length > 0 && (
+                          <div className="border-t border-gray-100 pt-2 space-y-1">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 block">Payment Records</span>
+                            <div className="max-h-24 overflow-y-auto space-y-1">
+                              {debt.payments.map(p => (
+                                <div key={p.id} className="flex justify-between items-center text-[10px] bg-emerald-50/50 px-2.5 py-1 rounded-lg text-slate-700">
+                                  <span className="font-semibold text-emerald-900">📅 {p.month}</span>
+                                  <span className="font-bold text-emerald-800">- TSH {p.amount.toLocaleString()}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
               </div>
             </div>
           )}
@@ -480,17 +543,24 @@ export default function App() {
                 </h4>
                 
                 <div className="space-y-2">
-                  {sortedDebts.map((debt, index) => (
-                    <div key={debt.id} className="bg-white border border-gray-100 p-3 rounded-xl flex justify-between items-center text-xs">
-                      <div>
-                        <span className="font-bold text-slate-900">{debt.name}</span>
-                        <div className="text-[10px] text-gray-400">Min: TSH {debt.minPayment.toLocaleString()} {index === 0 && <span className="text-emerald-600 font-bold ml-1">(+ Extra Target)</span>}</div>
-                      </div>
-                      <span className="font-extrabold text-slate-800">
-                        TSH {(debt.minPayment + (index === 0 ? disposableIncome : 0)).toLocaleString()}
-                      </span>
-                    </div>
-                  ))}
+                  {debts.length === 0 ? (
+                    <p className="text-center text-xs text-gray-400 py-4">Add your debts to generate your automated payoff roadmap.</p>
+                  ) : (
+                    sortedDebts.map((debt, index) => {
+                      const minPay = debt.min_payment || debt.minPayment || 0;
+                      return (
+                        <div key={debt.id} className="bg-white border border-gray-100 p-3 rounded-xl flex justify-between items-center text-xs">
+                          <div>
+                            <span className="font-bold text-slate-900">{debt.name}</span>
+                            <div className="text-[10px] text-gray-400">Min: TSH {minPay.toLocaleString()} {index === 0 && <span className="text-emerald-600 font-bold ml-1">(+ Extra Target)</span>}</div>
+                          </div>
+                          <span className="font-extrabold text-slate-800">
+                            TSH {(minPay + (index === 0 ? disposableIncome : 0)).toLocaleString()}
+                          </span>
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
               </div>
             </div>
@@ -509,15 +579,19 @@ export default function App() {
                 </form>
 
                 <div className="space-y-2 pt-2">
-                  {incomeSources.map(source => (
-                    <div key={source.id} className="flex justify-between items-center bg-slate-50 border border-gray-100 p-2.5 rounded-xl text-xs">
-                      <span className="font-medium text-slate-800">{source.name}</span>
-                      <div className="flex items-center space-x-2">
-                        <span className="font-bold text-emerald-700">TSH {source.amount.toLocaleString()}</span>
-                        <button onClick={() => handleDeleteIncomeSource(source.id)} className="text-gray-400 hover:text-red-500">🗑️</button>
+                  {incomeSources.length === 0 ? (
+                    <p className="text-center text-xs text-gray-400 py-2">No income sources added yet.</p>
+                  ) : (
+                    incomeSources.map(source => (
+                      <div key={source.id} className="flex justify-between items-center bg-slate-50 border border-gray-100 p-2.5 rounded-xl text-xs">
+                        <span className="font-medium text-slate-800">{source.name}</span>
+                        <div className="flex items-center space-x-2">
+                          <span className="font-bold text-emerald-700">TSH {source.amount.toLocaleString()}</span>
+                          <button onClick={() => handleDeleteIncomeSource(source.id)} className="text-gray-400 hover:text-red-500">🗑️</button>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))
+                  )}
                 </div>
               </div>
 
@@ -526,26 +600,26 @@ export default function App() {
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label className="text-[10px] text-gray-500 uppercase font-semibold">Housing</label>
-                    <input type="number" value={housing} onChange={(e) => setHousing(Number(e.target.value))} className="w-full mt-1 px-3 py-2 border rounded-xl text-xs font-medium" />
+                    <input type="number" value={housing} onChange={(e) => { setHousing(Number(e.target.value)); updateProfileField('housing', Number(e.target.value)); }} className="w-full mt-1 px-3 py-2 border rounded-xl text-xs font-medium" />
                   </div>
                   <div>
                     <label className="text-[10px] text-gray-500 uppercase font-semibold">Food / Grocery</label>
-                    <input type="number" value={food} onChange={(e) => setFood(Number(e.target.value))} className="w-full mt-1 px-3 py-2 border rounded-xl text-xs font-medium" />
+                    <input type="number" value={food} onChange={(e) => { setFood(Number(e.target.value)); updateProfileField('food', Number(e.target.value)); }} className="w-full mt-1 px-3 py-2 border rounded-xl text-xs font-medium" />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label className="text-[10px] text-gray-500 uppercase font-semibold">Utilities / Airtime</label>
-                    <input type="number" value={utilities} onChange={(e) => setUtilities(Number(e.target.value))} className="w-full mt-1 px-3 py-2 border rounded-xl text-xs font-medium" />
+                    <input type="number" value={utilities} onChange={(e) => { setUtilities(Number(e.target.value)); updateProfileField('utilities', Number(e.target.value)); }} className="w-full mt-1 px-3 py-2 border rounded-xl text-xs font-medium" />
                   </div>
                   <div>
                     <label className="text-[10px] text-gray-500 uppercase font-semibold">Transport</label>
-                    <input type="number" value={transport} onChange={(e) => setTransport(Number(e.target.value))} className="w-full mt-1 px-3 py-2 border rounded-xl text-xs font-medium" />
+                    <input type="number" value={transport} onChange={(e) => { setTransport(Number(e.target.value)); updateProfileField('transport', Number(e.target.value)); }} className="w-full mt-1 px-3 py-2 border rounded-xl text-xs font-medium" />
                   </div>
                 </div>
                 <div>
                   <label className="text-[10px] text-gray-500 uppercase font-semibold">Emergency Buffer (TSH)</label>
-                  <input type="number" value={emergencyBuffer} onChange={(e) => setEmergencyBuffer(Number(e.target.value))} className="w-full mt-1 px-3 py-2 border rounded-xl text-xs font-medium" />
+                  <input type="number" value={emergencyBuffer} onChange={(e) => { setEmergencyBuffer(Number(e.target.value)); updateProfileField('emergency_buffer', Number(e.target.value)); }} className="w-full mt-1 px-3 py-2 border rounded-xl text-xs font-medium" />
                 </div>
               </div>
 
