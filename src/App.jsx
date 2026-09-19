@@ -88,19 +88,21 @@ export default function App() {
       {/* Main Container */}
       <div className="w-full max-w-md bg-white rounded-3xl shadow-xl overflow-hidden flex flex-col border border-gray-100 relative pb-20">
         
-        {/* App Header */}
-        <div className="p-5 border-b border-gray-100 flex justify-between items-center bg-white">
+        {/* App Header with Logout Button */}
+        <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-white">
           <div>
             <div className="flex items-center space-x-2">
               <div className="w-3 h-3 bg-emerald-600 rounded-full"></div>
-              <h1 className="font-extrabold text-slate-900 tracking-wider text-sm">PESASHIELD</h1>
+              <h1 className="font-extrabold text-slate-900 tracking-wider text-xs">PESASHIELD</h1>
             </div>
-            <p className="text-[10px] text-gray-400 font-medium">Financial Protection & Strategy</p>
+            <p className="text-[9px] text-gray-400 font-medium">{session.user.email}</p>
           </div>
-          <div className="text-right">
-            <span className="text-[10px] text-gray-400 block uppercase font-semibold">User Profile</span>
-            <span className="text-xs font-bold text-slate-800 truncate max-w-[120px] block">{session.user.email.split('@')[0]}</span>
-          </div>
+          <button
+            onClick={() => supabase.auth.signOut()}
+            className="px-3 py-1.5 bg-red-50 text-red-600 rounded-xl text-xs font-bold hover:bg-red-100 transition shadow-sm"
+          >
+            Log Out
+          </button>
         </div>
 
         {/* Tab Content Views */}
@@ -150,20 +152,6 @@ export default function App() {
           {/* BUDGET & PROFILE TAB */}
           {activeTab === 'profile' && (
             <div className="space-y-4">
-              {/* Logout Action Card */}
-              <div className="bg-red-50 border border-red-100 p-4 rounded-2xl flex justify-between items-center">
-                <div>
-                  <h4 className="text-xs font-bold text-red-900">Current Session</h4>
-                  <p className="text-[10px] text-red-600 truncate max-w-[180px]">{session.user.email}</p>
-                </div>
-                <button
-                  onClick={() => supabase.auth.signOut()}
-                  className="px-4 py-2 bg-red-600 text-white rounded-xl text-xs font-bold hover:bg-red-700 transition shadow-sm"
-                >
-                  Log Out
-                </button>
-              </div>
-
               <div className="grid grid-cols-2 gap-2 bg-slate-50 p-3 rounded-2xl border border-gray-100 text-xs">
                 <div><span className="w-2 h-2 rounded-full bg-cyan-400 inline-block mr-1"></span> Living Costs <br/><b>TSH {totalLivingCosts.toLocaleString()}</b></div>
                 <div><span className="w-2 h-2 rounded-full bg-rose-500 inline-block mr-1"></span> Min Debt Pay <br/><b>TSH {totalMinDebt}</b></div>
