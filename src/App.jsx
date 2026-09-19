@@ -67,7 +67,7 @@ export default function App() {
 
   const fetchUserData = async (userId) => {
     try {
-      // 1. Fetch Profile / Budget Costs
+      // 1. Fetch Profile / Budget Costs using upsert to avoid duplicate row conflicts
       const { data: profileData } = await supabase
         .from('profiles')
         .select('*')
@@ -82,23 +82,20 @@ export default function App() {
         setTransport(profileData.transport || 0);
         setEmergencyBuffer(profileData.emergency_buffer || 0);
       } else {
-        // Create initial profile row with zeros if missing
         const { data: newProfile } = await supabase
           .from('profiles')
-          .insert([{ user_id: userId, housing: 0, food: 0, utilities: 0, transport: 0, emergency_buffer: 0 }])
+          .upsert([{ user_id: userId, housing: 0, food: 0, utilities: 0, transport: 0, emergency_buffer: 0 }], { onConflict: 'user_id' })
           .select()
           .single();
         if (newProfile) setProfileId(newProfile.id);
       }
 
-      // 2. Fetch Income Sources (No seeding)
+      // 2. Fetch Income Sources
       const { data: incomeData } = await supabase
         .from('income_sources')
         .select('*')
         .eq('user_id', userId);
-      if (incomeData) {
-        setIncomeSources(incomeData);
-      }
+      if (incomeData) setIncomeSources(incomeData);
 
       // 3. Fetch Custom Essentials
       const { data: essentialData } = await supabase
@@ -107,14 +104,12 @@ export default function App() {
         .eq('user_id', userId);
       if (essentialData) setCustomEssentials(essentialData);
 
-      // 4. Fetch Debts (No seeding)
+      // 4. Fetch Debts
       const { data: debtData } = await supabase
         .from('debts')
         .select('*')
         .eq('user_id', userId);
-      if (debtData) {
-        setDebts(debtData);
-      }
+      if (debtData) setDebts(debtData);
 
     } catch (err) {
       console.error('Error fetching user data:', err);
@@ -175,6 +170,8 @@ export default function App() {
       setIncomeSources([...incomeSources, data]);
       setNewIncomeName('');
       setNewIncomeAmount('');
+    } else {
+      console.error('Error adding income source:', error);
     }
   };
 
@@ -275,12 +272,17 @@ export default function App() {
   };
 
   const updateProfileField = async (field, value) => {
-    const updates = { [field]: value, user_id: session.user.id };
-    if (profileId) {
-      await supabase.from('profiles').update(updates).eq('id', profileId);
+    const updates = { user_id: session.user.id, [field]: value };
+    const { data, error } = await supabase
+      .from('profiles')
+      .upsert(updates, { onConflict: 'user_id' })
+      .select()
+      .single();
+      
+    if (!error && data) {
+      setProfileId(data.id);
     } else {
-      const { data } = await supabase.from('profiles').insert([updates]).select().single();
-      if (data) setProfileId(data.id);
+      console.error('Error updating profile field:', error);
     }
   };
 
@@ -319,7 +321,6 @@ export default function App() {
           {/* SHIELD TAB */}
           {activeTab === 'shield' && (
             <div className="space-y-4">
-              
               <div className={`border rounded-2xl p-4 transition ${pendingDebtsCount > 0 ? 'bg-amber-50 border-amber-200' : 'bg-emerald-50 border-emerald-200'}`}>
                 <div className="flex justify-between items-center mb-1">
                   <h3 className={`text-xs font-bold flex items-center space-x-1 ${pendingDebtsCount > 0 ? 'text-amber-900' : 'text-emerald-900'}`}>
