@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
-// Initialize Supabase Client with your real credentials
 const SUPABASE_URL = 'https://whattksidsddgixhazxi.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_YDAnYAAolVL7ey5QC1cNhw_1Jv1Zi9O';
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -14,7 +13,6 @@ export default function App() {
   const [isSignUp, setIsSignUp] = useState(false);
   const [authError, setAuthError] = useState(null);
 
-  // App data state
   const [activeTab, setActiveTab] = useState('profile');
   const [profileId, setProfileId] = useState(null);
   const [incomeSources, setIncomeSources] = useState([]);
@@ -45,12 +43,12 @@ export default function App() {
   }, []);
 
   const fetchUserData = async (userId) => {
-    // Fetch profile
+    // Use maybeSingle() to avoid 406 errors when profile doesn't exist yet
     const { data: profileData } = await supabase
       .from('profiles')
       .select('*')
       .eq('user_id', userId)
-      .single();
+      .maybeSingle();
 
     if (profileData) {
       setProfileId(profileData.id);
@@ -68,7 +66,6 @@ export default function App() {
       setEmergencyBuffer(0);
     }
 
-    // Fetch income sources
     const { data: incomeData } = await supabase
       .from('income_sources')
       .select('*')
@@ -76,7 +73,6 @@ export default function App() {
     
     setIncomeSources(incomeData || []);
 
-    // Fetch debts
     const { data: debtData } = await supabase
       .from('debts')
       .select('*')
@@ -85,7 +81,6 @@ export default function App() {
     setDebts(debtData || []);
   };
 
-  // Safe upsert for profile fields to avoid 409 conflicts
   const updateProfileField = async (field, value) => {
     if (!session) return;
     const updates = { 
@@ -97,7 +92,7 @@ export default function App() {
       .from('profiles')
       .upsert(updates, { onConflict: 'user_id' })
       .select()
-      .single();
+      .maybeSingle();
 
     if (!error && data) {
       setProfileId(data.id);
@@ -121,8 +116,6 @@ export default function App() {
       setIncomeSources([...incomeSources, data[0]]);
       setNewIncomeName('');
       setNewIncomeAmount('');
-    } else {
-      console.error('Error adding income:', error);
     }
   };
 
@@ -175,83 +168,86 @@ export default function App() {
   }
 
   return (
-    <div style={{ maxWidth: '600px', margin: '40px auto', padding: '20px', fontFamily: 'sans-serif' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        <h2>PESASHIELD</h2>
-        <button onClick={() => supabase.auth.signOut()} style={{ padding: '6px 12px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
+    <div style={{ maxWidth: '480px', margin: '20px auto', padding: '20px', fontFamily: 'sans-serif', background: '#f8fafc', minHeight: '90vh', borderRadius: '24px', boxShadow: '0 10px 25px rgba(0,0,0,0.05)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff', padding: '16px 20px', borderRadius: '16px', marginBottom: '20px', boxShadow: '0 2px 6px rgba(0,0,0,0.02)' }}>
+        <div>
+          <h3 style={{ margin: 0, color: '#0f766e', fontSize: '16px' }}>● PESASHIELD</h3>
+          <span style={{ fontSize: '12px', color: '#64748b' }}>{session.user.email}</span>
+        </div>
+        <button onClick={() => supabase.auth.signOut()} style={{ padding: '6px 14px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>
           Log Out
         </button>
       </div>
 
-      <div style={{ background: '#fff', padding: '20px', borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
-        <h3>Sources of Income</h3>
-        <form onSubmit={addIncomeSource} style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
+      <div style={{ background: '#fff', padding: '24px', borderRadius: '20px', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
+        <h4 style={{ marginTop: 0, color: '#1e293b' }}>Sources of Income</h4>
+        <form onSubmit={addIncomeSource} style={{ display: 'flex', gap: '8px', marginBottom: '15px' }}>
           <input 
             type="text" 
             placeholder="Income Source Name (e.g. Salary)" 
             value={newIncomeName} 
             onChange={(e) => setNewIncomeName(e.target.value)} 
-            style={{ flex: 2, padding: '8px', border: '1px solid #ccc', borderRadius: '4px' }}
+            style={{ flex: 2, padding: '10px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '14px' }}
           />
           <input 
             type="number" 
             placeholder="Amount" 
             value={newIncomeAmount} 
             onChange={(e) => setNewIncomeAmount(e.target.value)} 
-            style={{ flex: 1, padding: '8px', border: '1px solid #ccc', borderRadius: '4px' }}
+            style={{ flex: 1, padding: '10px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '14px' }}
           />
-          <button type="submit" style={{ padding: '8px 16px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
+          <button type="submit" style={{ padding: '10px 16px', background: '#059669', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>
             Add
           </button>
         </form>
 
-        <ul>
-          {incomeSources.length === 0 ? <p style={{ color: '#888' }}>No income sources added yet.</p> : 
+        <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 25px 0' }}>
+          {incomeSources.length === 0 ? <p style={{ color: '#94a3b8', fontSize: '14px', textAlign: 'center', margin: '10px 0' }}>No income sources added yet.</p> : 
             incomeSources.map(inc => (
-              <li key={inc.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #eee' }}>
-                <span>{inc.name}</span>
-                <strong>TSH {Number(inc.amount).toLocaleString()}</strong>
+              <li key={inc.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 12px', background: '#f8fafc', marginBottom: '6px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <span style={{ color: '#334155' }}>{inc.name}</span>
+                <strong style={{ color: '#059669' }}>TSH {Number(inc.amount).toLocaleString()}</strong>
               </li>
             ))
           }
         </ul>
 
-        <h3 style={{ marginTop: '30px' }}>Living Costs & Essentials</h3>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+        <h4 style={{ color: '#1e293b' }}>Living Costs & Essentials</h4>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
           <div>
-            <label style={{ fontSize: '12px', color: '#666' }}>HOUSING</label>
+            <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '4px' }}>HOUSING</label>
             <input 
               type="number" 
               value={housing} 
               onChange={(e) => { setHousing(e.target.value); updateProfileField('housing', e.target.value); }} 
-              style={{ width: '100%', padding: '8px', border: '1px solid #ccc', borderRadius: '4px' }}
+              style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '8px', boxSizing: 'border-box' }}
             />
           </div>
           <div>
-            <label style={{ fontSize: '12px', color: '#666' }}>FOOD / GROCERY</label>
+            <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '4px' }}>FOOD / GROCERY</label>
             <input 
               type="number" 
               value={food} 
               onChange={(e) => { setFood(e.target.value); updateProfileField('food', e.target.value); }} 
-              style={{ width: '100%', padding: '8px', border: '1px solid #ccc', borderRadius: '4px' }}
+              style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '8px', boxSizing: 'border-box' }}
             />
           </div>
           <div>
-            <label style={{ fontSize: '12px', color: '#666' }}>UTILITIES / AIRTIME</label>
+            <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '4px' }}>UTILITIES / AIRTIME</label>
             <input 
               type="number" 
               value={utilities} 
               onChange={(e) => { setUtilities(e.target.value); updateProfileField('utilities', e.target.value); }} 
-              style={{ width: '100%', padding: '8px', border: '1px solid #ccc', borderRadius: '4px' }}
+              style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '8px', boxSizing: 'border-box' }}
             />
           </div>
           <div>
-            <label style={{ fontSize: '12px', color: '#666' }}>TRANSPORT</label>
+            <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '4px' }}>TRANSPORT</label>
             <input 
               type="number" 
               value={transport} 
               onChange={(e) => { setTransport(e.target.value); updateProfileField('transport', e.target.value); }} 
-              style={{ width: '100%', padding: '8px', border: '1px solid #ccc', borderRadius: '4px' }}
+              style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '8px', boxSizing: 'border-box' }}
             />
           </div>
         </div>
